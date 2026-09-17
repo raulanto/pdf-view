@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=PDF View
+Comment=Visor PDF Quickshell con temas Omarchy y OCR local
+Exec=pdf-view %f
+Icon=pdf-view
+Terminal=false
+Categories=Office;Viewer;
+MimeType=application/pdf;
+Keywords=PDF;Reader;OCR;

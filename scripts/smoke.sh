@@ -14,5 +14,7 @@ if [[ "${PDF_VIEW_TEST_THEME:-0}" == 1 ]]; then
     cp /usr/share/omarchy/themes/tokyo-night/colors.toml "$PDF_VIEW_THEME_FILE"
 fi
 export QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-wayland}"
-timeout 25s quickshell --path "$project_dir/smoke.qml" --no-color 2>&1 | tee "$project_dir/build/smoke.log"
+timeout 45s quickshell --path "$project_dir/smoke.qml" --no-color 2>&1 | tee "$project_dir/build/smoke.log"
 grep -q "SMOKE PASSED" "$project_dir/build/smoke.log"
+
+if grep -Eq "Binding loop|ReferenceError|TypeError|is not a type|Cannot assign" "$project_dir/build/smoke.log"; then exit 1; fi

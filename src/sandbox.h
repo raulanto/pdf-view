@@ -14,6 +14,7 @@ inline QStringList sandboxArguments(const QString &worker) {
         "--setenv", "QT_QPA_PLATFORM", "offscreen",
         "--setenv", "HOME", "/nonexistent",
         "--setenv", "XDG_CACHE_HOME", "/tmp/cache",
+        "--setenv", "OMP_THREAD_LIMIT", "1",
         "--setenv", "LANG", "C.UTF-8", "--chdir", "/tmp"};
     if (QFile::exists("/etc/fonts")) args << "--ro-bind" << "/etc/fonts" << "/etc/fonts";
     args << "--" << "/app/worker";

@@ -32,6 +32,57 @@ ShellRoot {
                 Qt.quit()
                 return
             }
+            if (!root.themeTest) {
+                const doc = root.viewer.document
+                if (root.stage === 0) { root.stage=1; root.viewer.changePage(2); return }
+                if (root.stage === 1) {
+                    if (doc.currentPage !== 2) { console.error("Wrong page"); Qt.quit(); return }
+                    root.stage=2
+                    root.viewer.viewport.adjustZoom(1.25)
+                    doc.rotatePage(1)
+                    return
+                }
+                if (root.stage === 2) {
+                    if (doc.rotation !== 90) { console.error("Wrong rotation"); Qt.quit(); return }
+                    root.stage=3
+                    root.viewer.showSearch()
+                    root.viewer.searchField.text = "Quickshell"
+                    doc.search("Quickshell")
+                    return
+                }
+                if (root.stage === 3) {
+                    if (doc.searching) return
+                    if (doc.matchCount !== 1 || doc.currentPage !== 1) { console.error("Search failed"); Qt.quit(); return }
+                    doc.selectAll()
+                    if (doc.selectedText.indexOf("Quickshell") === -1) { console.error("Selection failed"); Qt.quit(); return }
+                    doc.clearSelection()
+                    root.viewer.viewport.zoom=2
+                    root.viewer.viewport.fitMode="manual"
+                    root.stage=4
+                    return
+                }
+                if (root.stage===4) {
+                    if (!doc.thumbnails["1"] || !doc.thumbnails["2"] || doc.regionRect.width===0 || doc.auxiliaryBusy) return
+                    root.stage=5
+                    doc.selectPageRange(1,2)
+                    return
+                }
+                if (root.stage===5) {
+                    if (doc.auxiliaryBusy) return
+                    if (doc.selectedText.indexOf("Second page")===-1) { console.error("Page range failed"); Qt.quit(); return }
+                    doc.clearSelection()
+                    root.viewer.sidebarMode="index"
+                    root.viewer.viewport.fitMode="page"
+                    root.stage=6
+                    return
+                }
+                if (root.stage===6) {
+                    root.viewer.sidebarMode="pages"
+                    root.stage=7
+                    return
+                }
+
+            }
             if (root.themeTest && root.stage === 0) {
                 if (root.viewer.theme.colors.background !== "#1a1b26") return
                 root.stage = 1
@@ -55,10 +106,10 @@ ShellRoot {
                     Qt.quit()
                     return
                 }
-                console.log("SMOKE PASSED: first page rendered in Quickshell" + (root.themeTest ? "; live dark/light reload and themed picker" : ""))
+                console.log("SMOKE PASSED: navigation, zoom, rotation, search and text selection in Quickshell" + (root.themeTest ? "; live dark/light reload and themed picker" : ""))
                 Qt.quit()
             })
         }
     }
-    Timer { interval: 20000; running: true; onTriggered: Qt.quit() }
+    Timer { interval: 40000; running: true; onTriggered: Qt.quit() }
 }

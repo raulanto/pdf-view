@@ -55,6 +55,7 @@ Dialog {
                 required property bool fileIsDir
                 width: list.width
                 text: (fileIsDir ? "▸ " : "  ") + fileName
+                contentItem: Text { text: parent.text; textFormat: Text.PlainText; font: parent.font; color: picker.colors.foreground; elide: Text.ElideRight; verticalAlignment: Text.AlignVCenter }
                 implicitHeight: 28
                 font.family: "monospace"
                 font.pixelSize: 12

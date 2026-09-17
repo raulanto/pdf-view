@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ $# -gt 1 ]]; then echo 'Uso: pdf-view [documento.pdf]' >&2; exit 2; fi
+export QML_IMPORT_PATH="@CMAKE_INSTALL_FULL_LIBDIR@/pdf-view/qml${QML_IMPORT_PATH:+:$QML_IMPORT_PATH}"
+export PDF_VIEW_WORKER="@CMAKE_INSTALL_FULL_LIBEXECDIR@/pdf-view/pdf-worker"
+export PDF_VIEW_THEME_HELPER="@CMAKE_INSTALL_FULL_LIBEXECDIR@/pdf-view/pdf-view-theme"
+export QT_QUICK_CONTROLS_STYLE=Basic
+if [[ $# -eq 1 ]]; then
+    export PDF_VIEW_DOCUMENT="$(python3 -c 'import pathlib,sys; print(pathlib.Path(sys.argv[1]).resolve().as_uri())' "$1")"
+else
+    unset PDF_VIEW_DOCUMENT
+fi
+exec quickshell --path "@CMAKE_INSTALL_FULL_DATADIR@/pdf-view/shell.qml"
