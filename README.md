@@ -78,6 +78,10 @@ PDF_VIEW_TEST_THEME=1 ./scripts/smoke.sh
 
 Las pruebas Rust validan TOML, colores, temas claros y entradas incompletas. La integración comprueba recuperación, reemplazo de directorio y enlaces simbólicos. La prueba visual usa `build/test-colors.toml`, cambia de oscuro a claro en la misma ventana y abre el selector temático; nunca cambia el tema del escritorio. Este modo visual toma la paleta oscura de `/usr/share/omarchy/themes/tokyo-night/colors.toml` y por tanto requiere Omarchy. Guarda la captura oscura en `build/smoke.png.dark.png` y el contenido del selector claro en `build/smoke.png`.
 
+## Diseño estilo terminal
+
+La interfaz QML usa tipografía monoespaciada, controles de texto, bordes rectos de un píxel, una barra superior con la ruta del documento, un panel lateral compacto y una barra de estado. El selector comparte esta apariencia. Los colores siguen la paleta activa de Omarchy, tanto clara como oscura; el PDF conserva sus colores originales. La disposición no añade navegación ni controles de funciones todavía pendientes.
+
 ## Siguiente fase
 
 Navegación multipágina, zoom, rotación y apertura ampliada. Búsqueda, selección de texto, miniaturas y empaquetado Pacman continúan pendientes.

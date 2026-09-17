@@ -8,7 +8,10 @@ Dialog {
     id: picker
     required property var colors
     signal selected(url file)
-    title: "Abrir PDF"
+    title: "[ abrir documento ]"
+    font.family: "monospace"
+    font.pixelSize: 12
+    padding: 12
     modal: true
     width: Math.min(parent.width - 32, 720)
     height: Math.min(parent.height - 32, 540)
@@ -23,7 +26,7 @@ Dialog {
     palette.buttonText: colors.foreground
     palette.highlight: colors.selection
     palette.highlightedText: colors.foreground
-    background: Rectangle { color: picker.colors.background; radius: 8; border.color: picker.colors.border }
+    background: Rectangle { color: picker.colors.background; radius: 0; border.color: picker.colors.border }
     FolderListModel {
         id: files
         folder: "file://" + Quickshell.env("HOME").split("/").map(encodeURIComponent).join("/")
@@ -33,11 +36,11 @@ Dialog {
         showDotAndDotDot: false
     }
     contentItem: ColumnLayout {
-        spacing: 12
+        spacing: 6
         RowLayout {
             Layout.fillWidth: true
-            Button { text: "↑"; Accessible.name: "Carpeta superior"; onClicked: files.folder = files.parentFolder }
-            Text { Layout.fillWidth: true; text: decodeURIComponent(files.folder.toString().replace(/^file:\/\//, "")); elide: Text.ElideMiddle; color: picker.colors.foreground }
+            Button { text: "[..]"; flat: true; Accessible.name: "Carpeta superior"; onClicked: files.folder = files.parentFolder }
+            Text { Layout.fillWidth: true; text: decodeURIComponent(files.folder.toString().replace(/^file:\/\//, "")); font.family: "monospace"; font.pixelSize: 12; elide: Text.ElideMiddle; color: picker.colors.foreground }
         }
         ListView {
             id: list
@@ -51,13 +54,21 @@ Dialog {
                 required property url fileUrl
                 required property bool fileIsDir
                 width: list.width
-                text: (fileIsDir ? "▸  " : "    ") + fileName
+                text: (fileIsDir ? "▸ " : "  ") + fileName
+                implicitHeight: 28
+                font.family: "monospace"
+                font.pixelSize: 12
+                background: Rectangle {
+                    color: parent.hovered || parent.down || parent.visualFocus ? picker.colors.selection : "transparent"
+                    border.width: parent.visualFocus ? 1 : 0
+                    border.color: picker.colors.accent
+                }
                 onClicked: {
                     if (fileIsDir) files.folder = fileUrl
                     else { picker.selected(fileUrl); picker.close() }
                 }
             }
-            Text { anchors.centerIn: parent; visible: files.count === 0; text: "No hay PDF en esta carpeta"; color: picker.colors.foreground }
+            Text { anchors.centerIn: parent; visible: files.count === 0; text: "[ sin documentos PDF ]"; font.family: "monospace"; font.pixelSize: 12; color: picker.colors.foreground }
         }
     }
 }
