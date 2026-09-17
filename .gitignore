@@ -1,0 +1,78 @@
+# Build outputs & Binaries
+/build/
+/bin/
+/lib/
+/out/
+*.o
+*.obj
+*.a
+*.so
+*.dylib
+*.dll
+*.exe
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+Testing/
+Makefile
+cmake_install.cmake
+install_manifest.txt
+compile_commands.json
+CTestTestfile.cmake
+
+# Rust
+/target/
+/**/target/
+**/*.rs.bk
+
+# Qt & QML
+*.user
+*.user.*
+*.autosave
+*.qmlc
+*.jsc
+*.qslog
+moc_*.cpp
+qrc_*.cpp
+ui_*.h
+
+# Sensitive & Environment files
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.pub
+*.crt
+*.pfx
+*.p12
+*.asc
+secrets/
+*.secret
+
+# IDEs & Editors
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+*~
+.clangd/
+.cache/
+.cquery
+.ccls-cache/
+
+# OS & System files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs & Temporary files
+*.log
+*.tmp
+*.bak

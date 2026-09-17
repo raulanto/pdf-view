@@ -1,0 +1,2 @@
+import "qml"
+Main {}
