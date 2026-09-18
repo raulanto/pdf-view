@@ -26,9 +26,38 @@ struct Job {
     cancel: Arc<AtomicBool>,
     thread: thread::JoinHandle<()>,
 }
-fn cancel(job: &mut Option<Job>) {
+struct WorkerProcess {
+    child: std::process::Child,
+    stdin: std::process::ChildStdin,
+    stdout: std::io::BufReader<std::process::ChildStdout>,
+}
+impl WorkerProcess {
+    fn spawn(worker: &PathBuf, file: &File) -> Result<Self> {
+        let mut child = sandbox(worker, file)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|e| format!("No se pudo iniciar el motor aislado: {e}"))?;
+        let stdin = child.stdin.take().unwrap();
+        let stdout = std::io::BufReader::new(child.stdout.take().unwrap());
+        Ok(Self {
+            child,
+            stdin,
+            stdout,
+        })
+    }
+    fn kill(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+fn cancel(job: &mut Option<Job>, worker_slot: &Arc<Mutex<Option<WorkerProcess>>>) {
     if let Some(job) = job.take() {
         job.cancel.store(true, Ordering::Relaxed);
+        if let Some(mut wp) = worker_slot.lock().unwrap().take() {
+            wp.kill();
+        }
         let _ = job.thread.join();
     }
 }
@@ -282,60 +311,53 @@ fn validate(mut meta: Value, pixels: Vec<u8>, request: &Value) -> Result<Value> 
     meta["image"] = json!(format!("data:image/png;base64,{}", STANDARD.encode(png)));
     Ok(meta)
 }
-fn execute(worker: &PathBuf, file: &File, request: &Value, cancel: &AtomicBool) -> Result<Value> {
-    let mut child = sandbox(worker, file)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .map_err(|e| format!("No se pudo iniciar el motor aislado: {e}"))?;
-    let output = child.stdout.take().unwrap();
-    let reader = thread::spawn(move || read_frame(output));
+fn execute(
+    worker_slot: &Arc<Mutex<Option<WorkerProcess>>>,
+    worker_path: &PathBuf,
+    file: &File,
+    request: &Value,
+    cancel_flag: &AtomicBool,
+) -> Result<Value> {
     let mut input = serde_json::to_vec(request).map_err(|e| e.to_string())?;
     input.push(b'\n');
-    let written = child.stdin.take().unwrap().write_all(&input);
     let limit = if request["op"] == "render" && request["ocr"] != true {
         20
     } else {
         45
     };
+    let mut guard = worker_slot.lock().unwrap();
+    if guard.is_none() {
+        *guard = Some(WorkerProcess::spawn(worker_path, file)?);
+    }
+    let worker_proc = guard.as_mut().unwrap();
+    if worker_proc.stdin.write_all(&input).is_err() {
+        if let Some(mut wp) = guard.take() {
+            wp.kill();
+        }
+        return Err("No se pudo enviar la petición.".into());
+    }
     let start = Instant::now();
-    let mut failed = None;
-    if written.is_err() {
-        failed = Some("No se pudo enviar la petición.");
+    let frame = read_frame(&mut worker_proc.stdout);
+    if cancel_flag.load(Ordering::Relaxed) || start.elapsed() > Duration::from_secs(limit) {
+        if let Some(mut wp) = guard.take() {
+            wp.kill();
+        }
+        return Err(if cancel_flag.load(Ordering::Relaxed) {
+            "cancelled"
+        } else {
+            "La operación excedió el tiempo permitido."
+        }
+        .into());
     }
-    while failed.is_none() {
-        if cancel.load(Ordering::Relaxed) {
-            failed = Some("cancelled");
-            break;
-        }
-        if start.elapsed() > Duration::from_secs(limit) {
-            failed = Some("La operación excedió el tiempo permitido.");
-            break;
-        }
-        match child.try_wait() {
-            Ok(Some(status)) => {
-                if !status.success() {
-                    failed = Some("No se pudo procesar el PDF en aislamiento.");
-                }
-                break;
+    let (meta, pixels) = match frame {
+        Ok(f) => f,
+        Err(e) => {
+            if let Some(mut wp) = guard.take() {
+                wp.kill();
             }
-            Ok(None) => thread::sleep(Duration::from_millis(10)),
-            Err(_) => {
-                failed = Some("Falló el proceso PDF.");
-                break;
-            }
+            return Err(e);
         }
-    }
-    if failed.is_some() {
-        let _ = child.kill();
-    }
-    let _ = child.wait();
-    let frame = reader.join().map_err(|_| "Falló la lectura del motor.")?;
-    if let Some(e) = failed {
-        return Err(e.into());
-    }
-    let (meta, pixels) = frame?;
+    };
     validate(meta, pixels, request)
 }
 fn main() -> io::Result<()> {
@@ -346,6 +368,11 @@ fn main() -> io::Result<()> {
         entries: VecDeque::new(),
         bytes: 0,
     }));
+    let workers: [Arc<Mutex<Option<WorkerProcess>>>; 3] = [
+        Arc::new(Mutex::new(None)),
+        Arc::new(Mutex::new(None)),
+        Arc::new(Mutex::new(None)),
+    ];
     let mut jobs: [Option<Job>; 3] = [None, None, None];
     let mut file: Option<Arc<File>> = None;
     let mut password = String::new();
@@ -367,13 +394,13 @@ fn main() -> io::Result<()> {
         let id = req["id"].as_u64().unwrap_or(0);
         let kind = req["kind"].as_u64().unwrap_or(0).min(2) as usize;
         let op = req["op"].as_str().unwrap_or("").to_owned();
-        cancel(&mut jobs[kind]);
+        cancel(&mut jobs[kind], &workers[kind]);
         if op == "cancel" {
             continue;
         }
         if op == "open" {
-            for job in &mut jobs {
-                cancel(job);
+            for (job, w) in jobs.iter_mut().zip(&workers) {
+                cancel(job, w);
             }
             file = None;
             password.clear();
@@ -388,8 +415,8 @@ fn main() -> io::Result<()> {
             req["op"] = json!("render");
             req["outline"] = json!(true);
         } else if op == "unlock" {
-            for job in &mut jobs {
-                cancel(job);
+            for (job, w) in jobs.iter_mut().zip(&workers) {
+                cancel(job, w);
             }
             cache.lock().unwrap().clear();
             password = req["password"].as_str().unwrap_or("").to_owned();
@@ -404,6 +431,11 @@ fn main() -> io::Result<()> {
             let next = (meta.mtime(), meta.mtime_nsec(), meta.len());
             if next != stamp {
                 cache.lock().unwrap().clear();
+                for w in &workers {
+                    if let Some(mut wp) = w.lock().unwrap().take() {
+                        wp.kill();
+                    }
+                }
                 stamp = next;
             }
         }
@@ -426,10 +458,11 @@ fn main() -> io::Result<()> {
         req["password"] = json!(password);
         let cancelled = Arc::new(AtomicBool::new(false));
         let flag = cancelled.clone();
-        let worker = worker.clone();
+        let worker_path = worker.clone();
+        let worker_slot = workers[kind].clone();
         let cache = cache.clone();
         let thread = thread::spawn(move || {
-            let value = match execute(&worker, &file, &req, &flag) {
+            let value = match execute(&worker_slot, &worker_path, &file, &req, &flag) {
                 Ok(v) => v,
                 Err(e) => json!({"error":e}),
             };
@@ -446,8 +479,8 @@ fn main() -> io::Result<()> {
             thread,
         });
     }
-    for job in &mut jobs {
-        cancel(job);
+    for (job, w) in jobs.iter_mut().zip(&workers) {
+        cancel(job, w);
     }
     Ok(())
 }

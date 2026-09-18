@@ -2,8 +2,12 @@ mod native;
 use native::Document;
 use pdf_view_backend::*;
 use serde_json::{json, Value};
-use std::io::Read;
-fn run(v: Value) -> Result<(Value, Vec<u8>)> {
+use std::io::BufRead;
+fn run(
+    doc_slot: &mut Option<Document>,
+    current_pass: &mut String,
+    v: &Value,
+) -> Result<(Value, Vec<u8>)> {
     let op = v["op"].as_str().unwrap_or("");
     let ocr = v["ocr"].as_bool().unwrap_or(false);
     let lang = v["language"].as_str().unwrap_or("eng");
@@ -14,13 +18,18 @@ fn run(v: Value) -> Result<(Value, Vec<u8>)> {
     if password.len() > 4096 {
         return Err("Contraseña demasiado larga.".into());
     }
-    let doc = Document::open(password)?;
+    if doc_slot.is_none() || password != current_pass {
+        *doc_slot = None;
+        *doc_slot = Some(Document::open(password)?);
+        *current_pass = password.to_string();
+    }
+    let doc = doc_slot.as_ref().unwrap();
     if op == "extract" {
         if !doc.can_copy() {
             return Err("El documento no permite copiar texto.".into());
         }
-        let first = integer(&v, "first", 0);
-        let last = integer(&v, "last", 0);
+        let first = integer(v, "first", 0);
+        let last = integer(v, "last", 0);
         if first < 1 || last < first || last > doc.pages() as i64 || last - first >= 100 {
             return Err("Selecciona un rango de hasta 100 páginas.".into());
         }
@@ -28,12 +37,12 @@ fn run(v: Value) -> Result<(Value, Vec<u8>)> {
         for page in first..=last {
             let words = doc.page(page as i32)?.words(ocr, lang)?;
             let start = if page == first {
-                integer(&v, "firstWord", 0)
+                integer(v, "firstWord", 0)
             } else {
                 0
             };
             let end = if page == last {
-                integer(&v, "lastWord", words.len() as i64 - 1)
+                integer(v, "lastWord", words.len() as i64 - 1)
             } else {
                 words.len() as i64 - 1
             };
@@ -106,9 +115,9 @@ fn run(v: Value) -> Result<(Value, Vec<u8>)> {
     if !["render", "thumbnail", "region"].contains(&op) {
         return Err("Operación desconocida.".into());
     }
-    let number = integer(&v, "page", 1);
-    let rotation = integer(&v, "rotation", 0);
-    let requested = number_f64(&v);
+    let number = integer(v, "page", 1);
+    let rotation = integer(v, "rotation", 0);
+    let requested = number_f64(v);
     if number < 1
         || number > doc.pages() as i64
         || !(0..=3).contains(&rotation)
@@ -173,26 +182,42 @@ fn main() {
             std::process::exit(10);
         }
     }
-    let mut bytes = Vec::new();
-    let result = std::io::stdin()
-        .take(16385)
-        .read_to_end(&mut bytes)
-        .map_err(|e| e.to_string())
-        .and_then(|_| {
-            if bytes.len() > 16384 {
-                return Err("Petición demasiado grande.".into());
+    let stdin = std::io::stdin();
+    let mut input = std::io::BufReader::new(stdin.lock());
+    let mut doc_slot: Option<Document> = None;
+    let mut current_pass = String::new();
+    loop {
+        let mut line = Vec::new();
+        let n = match input.read_until(b'\n', &mut line) {
+            Ok(n) => n,
+            Err(_) => break,
+        };
+        if n == 0 {
+            break;
+        }
+        if n > 16384 {
+            let (meta, pixels) = (json!({"error":"Petición demasiado grande."}), vec![]);
+            if write_frame(&meta, &pixels).is_err() {
+                std::process::exit(7);
             }
-            run(serde_json::from_slice(&bytes).map_err(|_| "Petición inválida.")?)
-        });
-    let (meta, pixels) = match result {
-        Ok(r) => r,
-        Err(e) if e == "locked" => (json!({"locked":true}), vec![]),
-        Err(e) => (
-            json!({"error":e.chars().take(256).collect::<String>()}),
-            vec![],
-        ),
-    };
-    if write_frame(&meta, &pixels).is_err() {
-        std::process::exit(7);
+            continue;
+        }
+        let req: Value =
+            match serde_json::from_slice::<Value>(&line[..line.len().saturating_sub(1)]) {
+                Ok(v) if v.is_object() => v,
+                _ => continue,
+            };
+        let result = run(&mut doc_slot, &mut current_pass, &req);
+        let (meta, pixels) = match result {
+            Ok(r) => r,
+            Err(e) if e == "locked" => (json!({"locked":true}), vec![]),
+            Err(e) => (
+                json!({"error":e.chars().take(256).collect::<String>()}),
+                vec![],
+            ),
+        };
+        if write_frame(&meta, &pixels).is_err() {
+            std::process::exit(7);
+        }
     }
 }

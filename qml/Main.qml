@@ -119,7 +119,10 @@ FloatingWindow {
         }
     }
     function changePage(number) {
-        viewport.contentX = 0; viewport.contentY = 0
+        if (number < 1 || (page.pageCount > 0 && number > page.pageCount)) return
+        viewport.contentX = 0
+        const singleHeight = page.pageHeight * 96/72 * viewport.effectiveScale
+        viewport.contentY = Math.max(0, Math.min(viewport.contentHeight - viewport.height, (number - 1) * (singleHeight + 16)))
         page.goToPage(number)
     }
     function showSearch() { searchVisible = true; query.forceActiveFocus(); query.selectAll() }
@@ -215,10 +218,11 @@ FloatingWindow {
                                 id: entry
                                 required property int index
                                 readonly property bool isThumbnail: window.sidebarMode==="pages"
+                                readonly property bool isCurrent: isThumbnail && page.currentPage===index+1
                                 readonly property var chapter: !isThumbnail ? page.outline[index] : null
                                 width: sideList.width
-                                height: isThumbnail ? 162 : 38
-                                color: (isThumbnail && page.currentPage===index+1) ? theme.colors.selection : "transparent"
+                                height: isThumbnail ? 172 : 38
+                                color: "transparent"
                                 border.width: activeFocus ? 1 : 0
                                 border.color: theme.colors.accent
                                 activeFocusOnTab: true
@@ -227,23 +231,43 @@ FloatingWindow {
                                 Keys.onSpacePressed: activate()
                                 Accessible.role: Accessible.Button
                                 Accessible.name: isThumbnail ? "Página " + (index+1) : (chapter ? chapter.title : "")
-                                Image {
-                                    anchors.top: parent.top; anchors.topMargin: 6
-                                    anchors.horizontalCenter: parent.horizontalCenter
-                                    width: parent.width-16; height: 130
+                                Rectangle {
+                                    id: thumbBox
                                     visible: entry.isThumbnail
-                                    fillMode: Image.PreserveAspectFit
-                                    source: entry.isThumbnail ? (page.thumbnails[String(entry.index+1)] || "") : ""
-                                    onSourceChanged: if (entry.isThumbnail && source.toString()==="") Qt.callLater(() => page.requestThumbnail(entry.index+1))
+                                    anchors.top: parent.top; anchors.topMargin: 4
+                                    anchors.horizontalCenter: parent.horizontalCenter
+                                    width: parent.width - 20
+                                    height: 138
+                                    color: theme.colors.surface
+                                    border.color: entry.isCurrent ? theme.colors.accent : (entryMouse.containsMouse ? theme.colors.border : "transparent")
+                                    border.width: entry.isCurrent ? 2 : 1
+                                    Image {
+                                        anchors.fill: parent
+                                        anchors.margins: 3
+                                        fillMode: Image.PreserveAspectFit
+                                        source: entry.isThumbnail ? (page.thumbnails[String(entry.index+1)] || "") : ""
+                                        onSourceChanged: if (entry.isThumbnail && source.toString()==="") Qt.callLater(() => page.requestThumbnail(entry.index+1))
+                                    }
                                 }
                                 Label {
                                     anchors.left: parent.left; anchors.right: parent.right
-                                    anchors.leftMargin: entry.isThumbnail ? 8 : 6+Math.min(entry.chapter ? entry.chapter.depth : 0,4)*10
-                                    anchors.bottom: parent.bottom; anchors.bottomMargin: 6
+                                    anchors.top: entry.isThumbnail ? thumbBox.bottom : undefined
+                                    anchors.topMargin: entry.isThumbnail ? 4 : 0
+                                    anchors.bottom: !entry.isThumbnail ? parent.bottom : undefined
+                                    anchors.bottomMargin: !entry.isThumbnail ? 6 : 0
+                                    anchors.leftMargin: entry.isThumbnail ? 0 : 6+Math.min(entry.chapter ? entry.chapter.depth : 0,4)*10
+                                    horizontalAlignment: entry.isThumbnail ? Text.AlignHCenter : Text.AlignLeft
                                     text: entry.isThumbnail ? String(entry.index+1) : (entry.chapter ? entry.chapter.title : "")
+                                    color: entry.isCurrent ? theme.colors.accent : theme.colors.foreground
+                                    font.bold: entry.isCurrent
                                     opacity: !entry.isThumbnail && entry.chapter && !entry.chapter.page ? 0.55 : 1
                                 }
-                                MouseArea { anchors.fill: parent; onClicked: { parent.forceActiveFocus(); entry.activate() } }
+                                MouseArea {
+                                    id: entryMouse
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    onClicked: { parent.forceActiveFocus(); entry.activate() }
+                                }
                                 Component.onCompleted: if (isThumbnail) page.requestThumbnail(index+1)
                                 onIsThumbnailChanged: if (isThumbnail) page.requestThumbnail(index+1)
                             }
@@ -323,13 +347,24 @@ FloatingWindow {
                             clip: true
                             property string fitMode: "page"
                             property real zoom: 1.0
+                            readonly property real singleHeight: page.pageHeight * 96/72 * effectiveScale
+                            readonly property real singleWidth: page.pageWidth * 96/72 * effectiveScale
+                            readonly property real totalDocHeight: page.pageCount > 0 ? page.pageCount * singleHeight + Math.max(0, page.pageCount - 1) * 16 : singleHeight
                             readonly property real effectiveScale: fitMode === "width" ? Math.max(0.05, (width-32)/(page.pageWidth*96/72)) :
                                 (fitMode === "page" ? Math.max(0.05, Math.min((width-32)/(page.pageWidth*96/72), (height-32)/(page.pageHeight*96/72))) : zoom)
                             function adjustZoom(factor) { zoom = Math.max(0.25, Math.min(4, effectiveScale*factor)); fitMode = "manual" }
-                            contentWidth: Math.max(width, page.width + 32)
-                            contentHeight: Math.max(height, page.height + 32)
+                            contentWidth: Math.max(width, singleWidth + 32)
+                            contentHeight: Math.max(height, totalDocHeight + 32)
                             onContentXChanged: regionDelay.restart()
-                            onContentYChanged: regionDelay.restart()
+                            onContentYChanged: {
+                                regionDelay.restart()
+                                if (page.pageCount > 1 && !page.busy) {
+                                    const pageIndex = Math.max(1, Math.min(page.pageCount, Math.floor((contentY + height/3) / (singleHeight + 16)) + 1))
+                                    if (pageIndex !== page.currentPage) {
+                                        page.goToPage(pageIndex)
+                                    }
+                                }
+                            }
                             onWidthChanged: regionDelay.restart()
                             onHeightChanged: regionDelay.restart()
                             boundsBehavior: Flickable.StopAtBounds
@@ -342,8 +377,8 @@ FloatingWindow {
                             }
                             PdfPage {
                                 id: page
-                                width: pageWidth*96/72*viewport.effectiveScale
-                                height: pageHeight*96/72*viewport.effectiveScale
+                                width: viewport.singleWidth
+                                height: viewport.totalDocHeight
                                 x: (viewport.contentWidth-width)/2
                                 y: (viewport.contentHeight-height)/2
                                 renderScale: viewport.effectiveScale*window.devicePixelRatio

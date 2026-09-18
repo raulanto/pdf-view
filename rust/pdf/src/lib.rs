@@ -1,7 +1,7 @@
 use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::io::{self, Read, Write};
+use std::io::{self, BufRead, Read, Write};
 
 pub const MAX_META: usize = 8 * 1024 * 1024;
 pub const MAX_PIXELS: usize = 4096 * 4096 * 4;
@@ -63,21 +63,18 @@ pub fn language_valid(s: &str) -> bool {
 }
 // Both IPC boundaries use newline-delimited JSON. Pixels are raw RGBA in base64,
 // never a compressed image that could bypass the broker's dimension checks.
-pub fn read_frame(mut input: impl Read) -> Result<(Value, Vec<u8>)> {
+pub fn read_frame(mut input: impl BufRead) -> Result<(Value, Vec<u8>)> {
     let mut data = Vec::new();
-    input
+    let n = input
         .by_ref()
         .take((MAX_FRAME + 1) as u64)
-        .read_to_end(&mut data)
+        .read_until(b'\n', &mut data)
         .map_err(|e| e.to_string())?;
-    if data.len() > MAX_FRAME
-        || data.last() != Some(&b'\n')
-        || data[..data.len() - 1].contains(&b'\n')
-    {
+    if n == 0 || data.len() > MAX_FRAME || data.last() != Some(&b'\n') {
         return Err("Respuesta inválida del motor.".into());
     }
-    let frame: Value =
-        serde_json::from_slice(&data).map_err(|_| "Respuesta inválida del motor.")?;
+    let frame: Value = serde_json::from_slice(&data[..data.len() - 1])
+        .map_err(|_| "Respuesta inválida del motor.")?;
     let meta = frame
         .get("meta")
         .filter(|v| v.is_object())

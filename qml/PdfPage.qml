@@ -50,6 +50,7 @@ Item {
     property string documentUrl: ""
     signal changed()
     signal revealMatch(point point)
+    QtObject { id: highlights; function requestPaint() { page.changed() } }
 
     Process {
         id: backend
@@ -234,44 +235,86 @@ Item {
     onHeightChanged: highlights.requestPaint()
     Timer { id: renderDelay; interval:150; onTriggered: page.render() }
     Timer { id: regionDelay; interval:180; onTriggered: page.pumpAuxiliary() }
-    Image { id: preview; anchors.fill:parent; cache:false; smooth:true }
-    Image { id: detail; x:page.regionRect.x;y:page.regionRect.y;width:page.regionRect.width;height:page.regionRect.height;cache:false;smooth:true }
-    // Bounded canvas texture even when the logical page is enlarged to 400%.
-    Canvas {
-        id: highlights
-        anchors.fill:parent
-        canvasSize: Qt.size(Math.min(2000,width),Math.min(2000,height))
-        onPaint: {
-            const ctx=getContext("2d");ctx.reset();ctx.clearRect(0,0,canvasSize.width,canvasSize.height)
-            if (width<=0 || height<=0) return
-            ctx.scale(canvasSize.width/width,canvasSize.height/height)
-            ctx.fillStyle=Qt.rgba(page.highlightColor.r,page.highlightColor.g,page.highlightColor.b,0.3)
-            ctx.strokeStyle=page.highlightColor;ctx.lineWidth=2
-            for (let i=0;i<page.matches.length;i++) if (page.matches[i].page===page.currentPage) {
-                const r=page.mapRect(page.matches[i].rect);ctx.fillRect(r.x,r.y,r.width,r.height)
-                if (i===page.matchIndex) ctx.strokeRect(r.x,r.y,r.width,r.height)
-            }
-            if (page.anchor>=0 && page.cursor>=0) for(let i=Math.min(page.anchor,page.cursor);i<=Math.max(page.anchor,page.cursor);i++) {
-                const r=page.mapRect(page.words[i].rect);ctx.fillRect(r.x,r.y,r.width,r.height)
+    Image { id: preview; visible: false; cache:false; smooth:true }
+    Image { id: detail; visible: false; cache:false; smooth:true }
+    Column {
+        id: pageColumn
+        anchors.horizontalCenter: parent.horizontalCenter
+        spacing: 16
+        Repeater {
+            model: Math.max(1, page.pageCount)
+            delegate: Item {
+                id: pageFrame
+                required property int index
+                readonly property int pageNum: index + 1
+                readonly property bool isCurrent: pageNum === page.currentPage
+                width: page.width
+                height: page.pageHeight * 96/72 * page.renderScale / (typeof window !== "undefined" && window ? window.devicePixelRatio : 1)
+                
+                Rectangle {
+                    anchors.fill: parent
+                    color: "#ffffff"
+                    border.color: Qt.rgba(0, 0, 0, 0.2)
+                    border.width: 1
+                }
+                
+                Image {
+                    anchors.fill: parent
+                    cache: false
+                    smooth: true
+                    source: isCurrent && preview.source.toString().length > 0 ? preview.source : (page.thumbnails[String(pageNum)] || "")
+                }
+                
+                Image {
+                    visible: isCurrent
+                    x: page.regionRect.x; y: page.regionRect.y; width: page.regionRect.width; height: page.regionRect.height
+                    cache: false; smooth: true
+                    source: isCurrent ? detail.source : ""
+                }
+                
+                Canvas {
+                    id: frameCanvas
+                    visible: isCurrent
+                    anchors.fill: parent
+                    canvasSize: Qt.size(Math.min(2000, width), Math.min(2000, height))
+                    onPaint: {
+                        const ctx = getContext("2d"); ctx.reset(); ctx.clearRect(0,0,canvasSize.width,canvasSize.height)
+                        if (width <= 0 || height <= 0) return
+                        ctx.scale(canvasSize.width/width, canvasSize.height/height)
+                        ctx.fillStyle = Qt.rgba(page.highlightColor.r, page.highlightColor.g, page.highlightColor.b, 0.3)
+                        ctx.strokeStyle = page.highlightColor; ctx.lineWidth = 2
+                        for (let i = 0; i < page.matches.length; i++) if (page.matches[i].page === pageNum) {
+                            const r = page.mapRect(page.matches[i].rect); ctx.fillRect(r.x, r.y, r.width, r.height)
+                            if (i === page.matchIndex) ctx.strokeRect(r.x, r.y, r.width, r.height)
+                        }
+                        if (page.anchor >= 0 && page.cursor >= 0 && page.currentPage === pageNum) for(let i = Math.min(page.anchor, page.cursor); i <= Math.max(page.anchor, page.cursor); i++) {
+                            const r = page.mapRect(page.words[i].rect); ctx.fillRect(r.x, r.y, r.width, r.height)
+                        }
+                    }
+                    Connections {
+                        target: page
+                        function onChanged() { frameCanvas.requestPaint() }
+                    }
+                }
             }
         }
     }
     MouseArea {
-        anchors.fill:parent
-        acceptedButtons:Qt.LeftButton
-        cursorShape:Qt.IBeamCursor
+        anchors.fill: parent
+        acceptedButtons: Qt.LeftButton
+        cursorShape: Qt.IBeamCursor
         onPressed: mouse => {
-            page.forceActiveFocus(); const i=page.wordAt(mouse.x,mouse.y)
-            if (i<0 || !page.canCopy) {mouse.accepted=false;return}
-            if ((mouse.modifiers & Qt.ShiftModifier) && page.selectionStartPage>0) {
-                let first=page.selectionStartPage,last=page.currentPage,a=page.selectionStartWord,b=i
-                if (first>last || (first===last && a>b)) {const p=first;first=last;last=p;const w=a;a=b;b=w}
-                page.cancelAuxiliary();page.clearSelection();page.send(2,{op:"extract",first:first,last:last,firstWord:a,lastWord:b});return
+            page.forceActiveFocus(); const i = page.wordAt(mouse.x, mouse.y)
+            if (i < 0 || !page.canCopy) { mouse.accepted = false; return }
+            if ((mouse.modifiers & Qt.ShiftModifier) && page.selectionStartPage > 0) {
+                let first = page.selectionStartPage, last = page.currentPage, a = page.selectionStartWord, b = i
+                if (first > last || (first === last && a > b)) { const p = first; first = last; last = p; const w = a; a = b; b = w }
+                page.cancelAuxiliary(); page.clearSelection(); page.send(2, {op: "extract", first: first, last: last, firstWord: a, lastWord: b}); return
             }
-            page.clearSelection();const r=page.mapRect(page.words[i].rect)
-            if (mouse.x<r.x-4 || mouse.y<r.y-4 || mouse.x>r.x+r.width+4 || mouse.y>r.y+r.height+4) {mouse.accepted=false;return}
-            page.selectionStartPage=page.currentPage;page.selectionStartWord=i;page.anchor=i;page.cursor=i;page.updateSelection()
+            page.clearSelection(); const r = page.mapRect(page.words[i].rect)
+            if (mouse.x < r.x - 4 || mouse.y < r.y - 4 || mouse.x > r.x + r.width + 4 || mouse.y > r.y + r.height + 4) { mouse.accepted = false; return }
+            page.selectionStartPage = page.currentPage; page.selectionStartWord = i; page.anchor = i; page.cursor = i; page.updateSelection()
         }
-        onPositionChanged: mouse => { if (pressed && page.anchor>=0) {page.cursor=page.wordAt(mouse.x,mouse.y);page.updateSelection()} }
+        onPositionChanged: mouse => { if (pressed && page.anchor >= 0) { page.cursor = page.wordAt(mouse.x, mouse.y); page.updateSelection() } }
     }
 }
