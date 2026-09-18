@@ -76,14 +76,26 @@ FloatingWindow {
         title: "[ documento protegido ]"
         font.family: "monospace"
         modal: true
+        closePolicy: Popup.NoAutoClose
         width: Math.min(420, canvas.width - 32)
         x: (canvas.width-width)/2; y: (canvas.height-height)/2
-        standardButtons: Dialog.Ok | Dialog.Cancel
-        palette.windowText: theme.colors.foreground
-        palette.buttonText: theme.colors.foreground
-        palette.button: theme.colors.surface
         background: Rectangle { color: theme.colors.background; border.color: theme.colors.border }
-        contentItem: Field { id: password; echoMode: TextInput.Password; maximumLength: 1024; placeholderText: "Contraseña"; onAccepted: passwordDialog.accept() }
+        header: Rectangle {
+            color: theme.colors.surface
+            implicitHeight: 32
+            Label { anchors.fill: parent; anchors.leftMargin: 8; verticalAlignment: Text.AlignVCenter; text: "[ documento protegido ]"; color: theme.colors.accent }
+        }
+        contentItem: Field { id: password; echoMode: TextInput.Password; maximumLength: 1024; placeholderText: "contraseña…"; onAccepted: passwordDialog.accept() }
+        footer: Rectangle {
+            color: theme.colors.background
+            implicitHeight: 34
+            RowLayout {
+                anchors { right: parent.right; rightMargin: 6; verticalCenter: parent.verticalCenter }
+                spacing: 2
+                Command { text: "cancelar"; onClicked: passwordDialog.reject() }
+                Command { text: "[ ok ]"; onClicked: passwordDialog.accept() }
+            }
+        }
         onOpened: password.forceActiveFocus()
         onAccepted: { page.unlock(password.text); password.clear() }
         onRejected: password.clear()
@@ -94,18 +106,31 @@ FloatingWindow {
         title: "[ seleccionar páginas ]"
         font.family: "monospace"
         modal: true
+        closePolicy: Popup.NoAutoClose
         width: Math.min(380, canvas.width-32)
         x: (canvas.width-width)/2; y: (canvas.height-height)/2
-        standardButtons: Dialog.Ok | Dialog.Cancel
-        palette.windowText: theme.colors.foreground
-        palette.buttonText: theme.colors.foreground
-        palette.button: theme.colors.surface
         background: Rectangle { color: theme.colors.background; border.color: theme.colors.border }
+        header: Rectangle {
+            color: theme.colors.surface
+            implicitHeight: 32
+            Label { anchors.fill: parent; anchors.leftMargin: 8; verticalAlignment: Text.AlignVCenter; text: "[ seleccionar páginas ]"; color: theme.colors.accent }
+        }
         contentItem: RowLayout {
-            Label { text: "Desde" }
+            spacing: 6
+            Label { text: "desde" }
             Field { id: rangeFirst; Layout.fillWidth: true; text: "1"; validator: IntValidator { bottom: 1; top: page.pageCount } }
             Label { text: "hasta" }
             Field { id: rangeLast; Layout.fillWidth: true; text: page.currentPage; validator: IntValidator { bottom: 1; top: page.pageCount } }
+        }
+        footer: Rectangle {
+            color: theme.colors.background
+            implicitHeight: 34
+            RowLayout {
+                anchors { right: parent.right; rightMargin: 6; verticalCenter: parent.verticalCenter }
+                spacing: 2
+                Command { text: "cancelar"; onClicked: rangeDialog.reject() }
+                Command { text: "[ ok ]"; onClicked: rangeDialog.accept() }
+            }
         }
         onAccepted: page.selectPageRange(Number(rangeFirst.text),Number(rangeLast.text))
     }
