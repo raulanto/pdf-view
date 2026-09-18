@@ -21,6 +21,21 @@ Item {
     property bool needsRefinement: false
     property var pageImages: ({})
     property var imageOrder: []
+    property var imageInfo: ({})
+    property var preloadAttempts: ({})
+    readonly property real targetDpi: Math.max(18,Math.min(768,144*renderScale))
+    ListModel { id: visiblePages }
+    function syncVisiblePages() {
+        const first=firstVisible, last=lastVisible
+        while (visiblePages.count && visiblePages.get(0).number<first) visiblePages.remove(0)
+        while (visiblePages.count && visiblePages.get(visiblePages.count-1).number>last) visiblePages.remove(visiblePages.count-1)
+        if (last<first) return
+        if (!visiblePages.count) visiblePages.append({number:first})
+        while (visiblePages.get(0).number>first) visiblePages.insert(0,{number:visiblePages.get(0).number-1})
+        while (visiblePages.get(visiblePages.count-1).number<last) visiblePages.append({number:visiblePages.get(visiblePages.count-1).number+1})
+    }
+    onFirstVisibleChanged: Qt.callLater(syncVisiblePages)
+    onLastVisibleChanged: Qt.callLater(syncVisiblePages)
     // The host supplies the height of one page; keep coordinates page-local.
     property real singleHeight: height
     property real visibleTop: (currentPage-1)*(singleHeight+16)
@@ -33,6 +48,7 @@ Item {
     property var matches: []
     readonly property int matchCount: matches.length
     property int matchIndex: -1
+    property bool revealPending: false
     property bool searchTruncated: false
     property string selectedText: ""
     property bool canCopy: false
@@ -93,22 +109,22 @@ Item {
         if (!ready) return
         request.id=++serial; request.kind=kind; request.ocr=ocrEnabled; request.language=ocrLanguage
         const next=pending.slice(); next[kind]=request; pending=next
-        if (kind===0) { loading=true; error="" }
+        if (kind===0) { loading=!request.preload; if (!request.preload) error="" }
         else if (kind===1) { searching=true; searchError="" }
         else { auxiliaryBusy=true; auxiliaryError="" }
         backend.write(JSON.stringify(request)+"\n")
         changed()
     }
     function renderRequest(op) {
-        return {op:op,page:currentPage,rotation:rotation/90,dpi:Math.max(18,Math.min(768,144*renderScale)),outline:false,text:false}
+        return {op:op,page:currentPage,rotation:rotation/90,dpi:targetDpi,outline:false,text:false}
     }
     function open(url) {
         if (!ready) { opening=url; backend.running=true; return }
         renderDelay.stop(); regionDelay.stop()
         cancel(0); cancel(1); cancel(2)
         documentUrl=url.toString(); pageCount=0; currentPage=1; rotation=0; canCopy=false; passwordRequired=false
-        preview.source=""; pageImages={}; imageOrder=[]; textReady=false; needsText=true; needsRefinement=false; words=[]; outline=[]; thumbnails={}; thumbnailOrder=[]; thumbnailQueue=[]; failedThumbnails={}
-        searchError=""; auxiliaryError=""; matches=[]; matchIndex=-1; searchTruncated=false; selectionStartPage=0; clearSelection(); resetRegion()
+        preview.source=""; pageImages={}; imageOrder=[]; imageInfo={}; preloadAttempts={}; textReady=false; needsText=true; needsRefinement=false; words=[]; outline=[]; thumbnails={}; thumbnailOrder=[]; thumbnailQueue=[]; failedThumbnails={}
+        searchError=""; auxiliaryError=""; matches=[]; matchIndex=-1; revealPending=false; searchTruncated=false; selectionStartPage=0; clearSelection(); resetRegion()
         const request=renderRequest("open"); request.url=documentUrl; request.dpi=54; needsRefinement=true; send(0,request)
     }
     function unlock(password) { needsText=true; needsRefinement=true; const request=renderRequest("unlock"); request.dpi=54; request.password=password; passwordRequired=false; send(0,request) }
@@ -116,8 +132,41 @@ Item {
         renderDelay.stop()
         if (documentUrl && !passwordRequired) {
             const request=renderRequest("render")
+            const key=currentPage+":"+rotation
+            if (imageIsReady(currentPage)) {
+                preview.source=pageImages[key]; applyImageInfo(imageInfo[key]); loading=false; revealCurrentMatch()
+                Qt.callLater(pumpAuxiliary); return
+            }
             if (!hasPage) { request.dpi=54; needsRefinement=true }
             send(0,request)
+        }
+    }
+    function imageIsReady(number) {
+        const key=number+":"+rotation, info=imageInfo[key]
+        return !!pageImages[key] && !!info && info.dpi>=targetDpi-0.1
+    }
+    function applyImageInfo(info) {
+        originalWidth=info.pageWidth; originalHeight=info.pageHeight; pageCount=info.pages
+        canCopy=info.canCopy; passwordRequired=false
+    }
+    function storeImage(request,data) {
+        const key=request.page+":"+(request.rotation*90), images=Object.assign({},pageImages), info=Object.assign({},imageInfo)
+        images[key]=data.image
+        info[key]={dpi:request.dpi,pageWidth:data.pageWidth,pageHeight:data.pageHeight,pages:data.pages,canCopy:data.canCopy}
+        imageOrder=imageOrder.filter(k=>k!==key); imageOrder.push(key)
+        while (imageOrder.length>6 || imageOrder.reduce((n,k)=>n+images[k].length,0)>48*1024*1024) {
+            const oldest=imageOrder.shift(); delete images[oldest]; delete info[oldest]
+        }
+        imageInfo=info; pageImages=images
+    }
+    function preloadPages() {
+        if (pending[0] || busy || !pageCount || passwordRequired || error) return
+        // Render before these pages enter the viewport; text/OCR has its own channel.
+        for (const number of [currentPage+1,currentPage-1,currentPage+2,currentPage-2]) {
+            const key=number+":"+rotation+":"+targetDpi
+            if (number<1 || number>pageCount || imageIsReady(number) || preloadAttempts[key]) continue
+            const request=renderRequest("render"); request.page=number; request.preload=true
+            send(0,request); return
         }
     }
     function receive(message) {
@@ -128,11 +177,19 @@ Item {
         else if (kind===1) searching=false
         else auxiliaryBusy=false
         const data=message.data
+        // Record completed attempts only: a canceled preload must remain eligible.
+        if (request.preload) preloadAttempts[request.page+":"+(request.rotation*90)+":"+request.dpi]=true
         if (data.error || data.locked) {
             const reason=data.error || "Introduce la contraseña del documento."
-            if (kind===0) { error=reason; passwordRequired=!!data.locked }
-            else if (kind===1) searchError=reason
+            if (kind===0) {
+                if (request.page===currentPage && request.rotation===rotation/90) { error=reason; passwordRequired=!!data.locked }
+            } else if (kind===1) searchError=reason
             else { auxiliaryError=reason; if (request.op==="thumbnail") failedThumbnails[request.page]=true }
+        } else if (request.preload) {
+            storeImage(request,data)
+            if (request.page===currentPage && request.rotation===rotation/90) {
+                preview.source=data.image; applyImageInfo(imageInfo[currentPage+":"+rotation]); revealCurrentMatch()
+            }
         } else if (request.op==="search") {
             matches=data.matches; searchTruncated=data.truncated; matchIndex=-1
             if (matches.length) nextMatch(1)
@@ -153,38 +210,41 @@ Item {
                 normalizedRegion=Qt.rect(request.region[0],request.region[1],request.region[2],request.region[3]); detail.source=data.image
             }
         } else {
-            originalWidth=data.pageWidth; originalHeight=data.pageHeight; pageCount=data.pages
-            canCopy=data.canCopy; passwordRequired=false; preview.source=data.image
-            const key=currentPage+":"+rotation, images=Object.assign({},pageImages)
-            images[key]=data.image; imageOrder=imageOrder.filter(k=>k!==key); imageOrder.push(key)
-            while (imageOrder.length>6 || imageOrder.reduce((n,k)=>n+images[k].length,0)>48*1024*1024) delete images[imageOrder.shift()]
-            pageImages=images
-            if (data.outline) outline=data.outline
-            revealCurrentMatch()
+            storeImage(request,data)
+            if (request.page===currentPage && request.rotation===rotation/90) {
+                applyImageInfo(imageInfo[currentPage+":"+rotation]); preview.source=data.image
+                if (data.outline) outline=data.outline
+                revealCurrentMatch()
+            }
         }
         highlights.requestPaint(); changed(); Qt.callLater(pumpAuxiliary)
     }
     function goToPage(number) {
         if (number<1 || number>pageCount || number===currentPage) return
-        cancelAuxiliary(); resetRegion(); currentPage=number
+        cancelAuxiliary(); resetRegion(); preloadAttempts={}; currentPage=number
         preview.source=pageImages[number+":"+rotation] || (rotation===0 ? thumbnails[number] || "" : "")
-        words=[]; textReady=false; needsText=true; needsRefinement=false; clearSelection(); render()
+        words=[]; textReady=false; needsText=true; needsRefinement=false; clearSelection()
+        // Promote an in-flight preload without killing its worker and starting over.
+        if (pending[0] && pending[0].preload && pending[0].page===number && pending[0].rotation===rotation/90) {
+            Qt.callLater(pumpAuxiliary)
+        } else render()
     }
     function rotatePage(steps) {
         if (!pageCount) return
-        cancelAuxiliary(); resetRegion(); rotation=((rotation+steps*90)%360+360)%360
+        cancelAuxiliary(); resetRegion(); preloadAttempts={}; rotation=((rotation+steps*90)%360+360)%360
         preview.source=pageImages[currentPage+":"+rotation] || ""
         words=[]; textReady=false; needsText=true; needsRefinement=false; clearSelection(); render()
     }
     function search(query) {
-        cancel(1); matches=[]; matchIndex=-1; searchTruncated=false; searchError=""; highlights.requestPaint()
+        cancel(1); matches=[]; matchIndex=-1; revealPending=false; searchTruncated=false; searchError=""; highlights.requestPaint()
         if (query.length && pageCount) send(1,{op:"search",query:query})
     }
     function nextMatch(direction) {
         if (!matches.length) return
         matchIndex=matchIndex<0 ? (direction<0 ? matches.length-1 : 0) : (matchIndex+(direction<0?-1:1)+matches.length)%matches.length
+        revealPending=true
         if (currentPage!==matches[matchIndex].page) goToPage(matches[matchIndex].page)
-        else revealCurrentMatch()
+        revealCurrentMatch()
         highlights.requestPaint()
     }
     function mapRect(rect) {
@@ -195,7 +255,8 @@ Item {
         return Qt.rect(x*width/pageWidth,y*singleHeight/pageHeight,w*width/pageWidth,h*singleHeight/pageHeight)
     }
     function revealCurrentMatch() {
-        if (matchIndex>=0 && matches[matchIndex].page===currentPage && hasPage) {
+        if (revealPending && matchIndex>=0 && matches[matchIndex].page===currentPage && hasPage) {
+            revealPending=false
             const r=mapRect(matches[matchIndex].rect); revealMatch(Qt.point(r.x+r.width/2,r.y+r.height/2+(currentPage-1)*(singleHeight+16)))
         }
     }
@@ -238,6 +299,7 @@ Item {
     function pumpAuxiliary() {
         if (busy || !pageCount || passwordRequired) return
         if (needsRefinement) { needsRefinement=false; send(0,renderRequest("render")) }
+        preloadPages()
         if (auxiliaryBusy) return
         if (needsText) {
             needsText=false
@@ -261,7 +323,7 @@ Item {
         if (r[0]===old.x && r[1]===old.y && r[2]===old.width && r[3]===old.height) return
         pendingRegion=r; regionDelay.restart()
     }
-    onRenderScaleChanged: { resetRegion(); if (documentUrl && !passwordRequired) renderDelay.restart() }
+    onRenderScaleChanged: { preloadAttempts={}; resetRegion(); if (documentUrl && !passwordRequired) renderDelay.restart() }
     onOcrEnabledChanged: { selectionStartPage=0;clearSelection();search("");cancelAuxiliary();resetRegion();words=[];textReady=false;needsText=true;render() }
     onOcrLanguageChanged: { if (ocrEnabled) {selectionStartPage=0;clearSelection();search("");cancelAuxiliary();resetRegion();words=[];textReady=false;needsText=true;render()} }
     onHighlightColorChanged: highlights.requestPaint()
@@ -269,16 +331,18 @@ Item {
     onHeightChanged: highlights.requestPaint()
     Timer { id: renderDelay; interval:150; onTriggered: page.render() }
     Timer { id: regionDelay; interval:180; onTriggered: page.pumpAuxiliary() }
-    Image { id: preview; visible: false; cache:false; smooth:true }
-    Image { id: detail; visible: false; cache:false; smooth:true }
+    Image { id: preview; visible: false; cache:true; asynchronous:true; smooth:true }
+    Image { id: detail; visible: false; cache:true; asynchronous:true; smooth:true }
     Item {
         anchors.fill: parent
         Repeater {
-            model: Math.max(0,page.lastVisible-page.firstVisible+1)
+            objectName: "visiblePages"
+            model: visiblePages
             delegate: Item {
                 id: pageFrame
-                required property int index
-                readonly property int pageNum: page.firstVisible + index
+                required property int number
+                readonly property int pageNum: number
+                objectName: "pdfPage"+pageNum
                 readonly property bool isCurrent: pageNum === page.currentPage
                 width: page.width
                 height: page.singleHeight
@@ -293,8 +357,11 @@ Item {
                 }
                 
                 Image {
+                    objectName: "pageImage"
                     anchors.fill: parent
-                    cache: false
+                    cache: true
+                    asynchronous: true
+                    retainWhileLoading: true
                     smooth: true
                     source: isCurrent && preview.source.toString().length > 0 ? preview.source : (page.pageImages[pageNum+":"+page.rotation] || (page.rotation===0 ? page.thumbnails[String(pageNum)] || "" : ""))
                 }

@@ -12,8 +12,8 @@ ShellRoot {
         property int checks: 0
         when: doc.ready
         function cleanupTestCase() {
-            if (checks===7) console.log("INTERACTION PASSED: mouse selection at 0/90/180/270 degrees, drag, clipboard, Shift+click and stale responses")
-            else console.error("INTERACTION FAILED: " + checks + "/7 checks completed")
+            if (checks===9) console.log("INTERACTION PASSED: mouse selection at 0/90/180/270 degrees, drag, clipboard, Shift+click stale responses and preloaded scrolling")
+            else console.error("INTERACTION FAILED: " + checks + "/9 checks completed")
             Qt.quit()
         }
         function initTestCase() {
@@ -44,6 +44,41 @@ ShellRoot {
             mouseMove(doc,b.x+b.width/2,b.y+b.height/2+(doc.currentPage-1)*(doc.singleHeight+16))
             mouseRelease(doc,b.x+b.width/2,b.y+b.height/2+(doc.currentPage-1)*(doc.singleHeight+16))
             compare(doc.selectedText,"PDF View - Quickshell")
+            checks++
+        }
+        function test_scrollCache() {
+            doc.goToPage(1); doc.rotatePage(-doc.rotation/90)
+            tryVerify(() => doc.imageIsReady(1) && doc.imageIsReady(2),20000)
+            const images=Object.assign({},doc.pageImages); delete images["2:0"]; doc.pageImages=images
+            doc.imageOrder=doc.imageOrder.filter(key=>key!=="2:0")
+            doc.preloadAttempts={}; doc.preloadPages()
+            verify(doc.pending[0] && doc.pending[0].preload)
+            doc.send(0,doc.renderRequest("render")) // interrupt the preload before its response
+            tryVerify(() => doc.imageIsReady(2),20000)
+            const second=findChild(doc,"pdfPage2")
+            verify(second!==null)
+            for (let i=0;i<8;i++) {
+                doc.goToPage(i%2+1)
+                verify(doc.hasPage)
+                verify(!doc.loading, "Preloaded page must not trigger a foreground render")
+                wait(20)
+                compare(findChild(doc,"pdfPage2"),second,"Visible delegates must survive page changes")
+            }
+            checks++
+        }
+        function test_scrollLateRender() {
+            doc.goToPage(1); doc.rotatePage(-doc.rotation/90)
+            tryVerify(() => doc.imageIsReady(1) && doc.imageIsReady(2),20000)
+            // A render of page 1 can finish after scrolling to cached page 2.
+            doc.send(0,doc.renderRequest("render"))
+            const request=doc.pending[0], oldImage=doc.pageImages["1:0"], oldInfo=doc.imageInfo["1:0"]
+            doc.goToPage(2)
+            const visibleImage=doc.pageImages["2:0"]
+            doc.receive({id:request.id,kind:0,data:{image:oldImage,pageWidth:oldInfo.pageWidth,pageHeight:oldInfo.pageHeight,pages:2,canCopy:true}})
+            compare(doc.pageImages["2:0"],visibleImage)
+            const frame=findChild(doc,"pdfPage2")
+            const image=findChild(frame,"pageImage")
+            compare(image.source.toString(),visibleImage)
             checks++
         }
         function test_staleResponses() {

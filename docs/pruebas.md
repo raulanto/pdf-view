@@ -50,3 +50,5 @@ Las pruebas visuales se ejecutan dentro de Quickshell, que registra sus módulos
 Informa las pruebas omitidas o bloqueadas por el entorno. Para cambios solo de documentación basta validar enlaces, rutas, comandos y coherencia; no es necesario ejecutar la aplicación.
 
 Para repetir las pruebas con PDFium: `PDF_VIEW_ENGINE=pdfium PDF_VIEW_PDFIUM="$PWD/build/pdfium/lib/libpdfium.so" ./scripts/smoke.sh`. La misma suite verifica ambos motores; los tiempos de [Rendimiento](rendimiento.md) no son pruebas de aceptación para cualquier documento.
+
+Las pruebas visuales verifican también interpolación del scroll con rueda, precarga a resolución de lectura, navegación repetida sin renderizado en primer plano, conservación de los delegados visibles y descarte de imágenes tardías después de cambiar a una página en caché.

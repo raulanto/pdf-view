@@ -34,7 +34,16 @@ ShellRoot {
             }
             if (!root.themeTest) {
                 const doc = root.viewer.document
-                if (root.stage === 0) { root.stage=1; root.viewer.changePage(2); return }
+                if (root.stage === 0) {
+                    if (!doc.imageIsReady(2)) return
+                    root.stage=-1; root.viewer.viewport.scrollBy(240); scrollCheck.start(); return
+                }
+                if (root.stage === -1) {
+                    if (Math.abs(root.viewer.viewport.contentY-240)>1) { console.error("Smooth scroll destination failed"); Qt.quit(); return }
+                    root.stage=1; root.viewer.changePage(2)
+                    if (doc.busy || !doc.hasPage) { console.error("Preloaded page rendered again"); Qt.quit() }
+                    return
+                }
                 if (root.stage === 1) {
                     if (doc.currentPage !== 2) { console.error("Wrong page"); Qt.quit(); return }
                     root.stage=2
@@ -111,5 +120,15 @@ ShellRoot {
             })
         }
     }
-    Timer { interval: 40000; running: true; onTriggered: Qt.quit() }
+    Timer {
+        id: scrollCheck; interval: 60
+        onTriggered: {
+            const y=root.viewer.viewport.contentY
+            if (y<=0 || y>=240) { console.error("Smooth scroll did not interpolate"); Qt.quit() }
+        }
+    }
+    Timer { interval: 40000; running: true; onTriggered: {
+        console.error("SMOKE TIMEOUT at stage " + root.stage + ": " + (root.viewer ? root.viewer.document.error : "no viewer"))
+        Qt.quit()
+    } }
 }

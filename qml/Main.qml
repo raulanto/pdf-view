@@ -28,6 +28,7 @@ FloatingWindow {
     color: theme.colors.background
 
     function openDocument(file) {
+        wheelScroll.stop()
         openingError = ""
         searchVisible = false
         searchDelay.stop()
@@ -119,6 +120,7 @@ FloatingWindow {
         }
     }
     function changePage(number) {
+        wheelScroll.stop()
         if (number < 1 || (page.pageCount > 0 && number > page.pageCount)) return
         viewport.contentX = 0
         const singleHeight = page.pageHeight * 96/72 * viewport.effectiveScale
@@ -352,6 +354,13 @@ FloatingWindow {
                             readonly property real totalDocHeight: page.pageCount > 0 ? page.pageCount * singleHeight + Math.max(0, page.pageCount - 1) * 16 : singleHeight
                             readonly property real effectiveScale: fitMode === "width" ? Math.max(0.05, (width-32)/(page.pageWidth*96/72)) :
                                 (fitMode === "page" ? Math.max(0.05, Math.min((width-32)/(page.pageWidth*96/72), (height-32)/(page.pageHeight*96/72))) : zoom)
+                            function scrollBy(delta) {
+                                const destination=Math.max(0,Math.min(contentHeight-height,(wheelScroll.running ? wheelScroll.to : contentY)+delta))
+                                wheelScroll.stop(); cancelFlick()
+                                wheelScroll.from=contentY; wheelScroll.to=destination; wheelScroll.start()
+                            }
+                            NumberAnimation { id: wheelScroll; target: viewport; property: "contentY"; duration: 140; easing.type: Easing.OutCubic }
+                            onDraggingChanged: if (dragging) wheelScroll.stop()
                             function adjustZoom(factor) { zoom = Math.max(0.25, Math.min(4, effectiveScale*factor)); fitMode = "manual" }
                             contentWidth: Math.max(width, singleWidth + 32)
                             contentHeight: Math.max(height, totalDocHeight + 32)
@@ -371,6 +380,16 @@ FloatingWindow {
                             acceptedButtons: Qt.MiddleButton
                             ScrollBar.vertical: ScrollBar { palette.mid: theme.colors.border; palette.dark: theme.colors.accent }
                             ScrollBar.horizontal: ScrollBar { palette.mid: theme.colors.border; palette.dark: theme.colors.accent }
+                            WheelHandler {
+                                target: null
+                                acceptedDevices: PointerDevice.Mouse
+                                acceptedModifiers: Qt.NoModifier
+                                onWheel: event => {
+                                    // Let pixel-precise touchpad scrolling retain Qt's native motion.
+                                    if (event.pixelDelta.y || event.pixelDelta.x) { event.accepted=false; return }
+                                    viewport.scrollBy(-event.angleDelta.y/120*100); event.accepted=true
+                                }
+                            }
                             WheelHandler {
                                 acceptedModifiers: Qt.ControlModifier
                                 onWheel: event => { viewport.adjustZoom(event.angleDelta.y > 0 ? 1.1 : 1/1.1); event.accepted = true }

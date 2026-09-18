@@ -22,8 +22,9 @@ El paquete Arch incluye la biblioteca y sus licencias. En desarrollo, el script 
 - Primera imagen a 54 dpi; después se refina con la resolución de lectura.
 - Texto, índice y OCR posteriores a la imagen, en un canal independiente del renderizado.
 - Workers persistentes y cancelación sin esperar a que finalice una lectura bloqueada.
-- Caché acotada de imágenes recientes y miniaturas vecinas; el zoom conserva la imagen anterior durante el refinamiento.
-- Solo se crean objetos QML de las páginas visibles y próximas. No se crea un objeto por cada página del archivo completo.
+- Precarga de las dos páginas siguientes y las dos anteriores a resolución de lectura, independiente del OCR. Al entrar en una página preparada se reutiliza su imagen sin volver a renderizarla. La caché conserva hasta seis imágenes dentro del presupuesto existente.
+- Los objetos QML de las páginas visibles conservan su identidad al desplazarse. Las imágenes se decodifican de forma asíncrona y comparten la caché de Qt. Solo se agregan o retiran páginas en los extremos del área próxima.
+- La rueda del ratón desplaza con una transición de 140 ms; los eventos de touchpad con deltas en píxeles mantienen el desplazamiento nativo.
 
 No hay una pantalla de carga que bloquee la lectura. Esto no implica latencia cero: documentos grandes, dañados, escaneados o complejos aún necesitan procesamiento. Las páginas que aún no tienen una imagen pueden verse vacías brevemente. El OCR no bloquea el renderizado, pero comparte el canal auxiliar con miniaturas y selección de rangos.
 
