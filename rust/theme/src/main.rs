@@ -10,6 +10,46 @@ use std::{
     time::Duration,
 };
 
+fn scale_path() -> Option<PathBuf> {
+    let config = env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .filter(|p| p.is_absolute())
+        .unwrap_or_else(|| PathBuf::from(env::var_os("HOME").unwrap_or_default()).join(".config"));
+    Some(config.join("hypr/monitors.conf"))
+}
+
+fn parse_scale(text: &str) -> f64 {
+    // Parse the first active (non-commented) `monitor=` line and extract the 4th comma-separated field.
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('#') || !trimmed.to_ascii_lowercase().starts_with("monitor=") {
+            continue;
+        }
+        let after_eq = &trimmed["monitor=".len()..];
+        let parts: Vec<&str> = after_eq.splitn(5, ',').map(str::trim).collect();
+        if parts.len() >= 4 {
+            if let Ok(s) = parts[3].parse::<f64>() {
+                if s > 0.0 && s <= 8.0 {
+                    return s;
+                }
+            }
+        }
+    }
+    1.0
+}
+
+fn read_scale(path: &PathBuf) -> f64 {
+    let Ok(f) = File::open(path) else { return 1.0 };
+    if f.metadata().map(|m| !m.is_file()).unwrap_or(true) {
+        return 1.0;
+    }
+    let mut text = String::new();
+    if f.take(65537).read_to_string(&mut text).is_err() || text.len() > 65536 {
+        return 1.0;
+    }
+    parse_scale(&text)
+}
+
 fn fallback() -> Value {
     json!({"background":"#171b24", "surface":"#222838", "foreground":"#e0e6f0",
         "accent":"#7aa2f7", "selection":"#343e55", "border":"#59657a",
@@ -111,6 +151,7 @@ fn read_palette(path: &PathBuf) -> Result<Value, String> {
 }
 fn main() -> io::Result<()> {
     let candidates = paths();
+    let scale_file = scale_path();
     let (tx, rx) = mpsc::sync_channel(8);
     let mut watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
         if !matches!(event, Ok(ref e) if e.kind.is_access()) {
@@ -127,6 +168,19 @@ fn main() -> io::Result<()> {
         let mut wanted = BTreeSet::new();
         for path in &candidates {
             for candidate in [Some(path.clone()), path.canonicalize().ok()]
+                .into_iter()
+                .flatten()
+            {
+                for parent in candidate.ancestors() {
+                    if parent.is_dir() {
+                        wanted.insert(parent.to_owned());
+                    }
+                }
+            }
+        }
+        // Also watch the monitors.conf parent dir for scale changes.
+        if let Some(ref sp) = scale_file {
+            for candidate in [Some(sp.clone()), sp.canonicalize().ok()]
                 .into_iter()
                 .flatten()
             {
@@ -165,7 +219,8 @@ fn main() -> io::Result<()> {
                 }
             }
         };
-        let message = json!({"palette":palette,"status":status}).to_string();
+        let scale = scale_file.as_ref().map(read_scale).unwrap_or(1.0);
+        let message = json!({"palette":palette,"scale":scale,"status":status}).to_string();
         if message != last {
             let mut stdout = io::stdout().lock();
             writeln!(stdout, "{message}")?;

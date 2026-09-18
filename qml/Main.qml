@@ -43,13 +43,13 @@ FloatingWindow {
         textFormat: Text.PlainText
         color: theme.colors.foreground
         font.family: "monospace"
-        font.pixelSize: 12
+        font.pixelSize: Math.round(12 * theme.scale)
         elide: Text.ElideRight
     }
     component Command: Button {
         font.family: "monospace"
-        font.pixelSize: 12
-        padding: 7
+        font.pixelSize: Math.round(12 * theme.scale)
+        padding: Math.round(7 * theme.scale)
         contentItem: Text { text: parent.text; font: parent.font; color: parent.enabled ? theme.colors.accent : theme.colors.border }
         background: Rectangle {
             color: parent.down || parent.hovered ? theme.colors.selection : "transparent"
@@ -59,12 +59,12 @@ FloatingWindow {
     }
     component Field: TextField {
         font.family: "monospace"
-        font.pixelSize: 12
+        font.pixelSize: Math.round(12 * theme.scale)
         color: theme.colors.foreground
         selectionColor: theme.colors.accent
         selectedTextColor: theme.colors.onAccent
         placeholderTextColor: theme.colors.foreground
-        padding: 6
+        padding: Math.round(6 * theme.scale)
         background: Rectangle {
             color: theme.colors.background
             border.color: parent.activeFocus ? theme.colors.accent : theme.colors.border
@@ -196,7 +196,7 @@ FloatingWindow {
             spacing: 0
             Rectangle {
                 Layout.fillWidth: true
-                implicitHeight: window.focusMode ? 0 : 35
+                implicitHeight: window.focusMode ? 0 : Math.round(35 * theme.scale)
                 visible: !window.focusMode
                 color: theme.colors.surface
                 Behavior on implicitHeight { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
@@ -464,7 +464,7 @@ FloatingWindow {
             Rectangle { Layout.fillWidth: true; implicitHeight: 1; visible: !window.focusMode; color: theme.colors.border }
             Rectangle {
                 Layout.fillWidth: true
-                implicitHeight: window.focusMode ? 0 : 25
+                implicitHeight: window.focusMode ? 0 : Math.round(25 * theme.scale)
                 visible: !window.focusMode
                 color: theme.colors.surface
                 Behavior on implicitHeight { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
