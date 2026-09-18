@@ -15,6 +15,7 @@ FloatingWindow {
     readonly property alias searchField: query
     property string openingError: ""
     property bool searchVisible: false
+    property bool focusMode: false
     property string sidebarMode: "pages"
     readonly property bool commandsEnabled: !picker.visible && !passwordDialog.visible && !rangeDialog.visible && !ocrLanguage.activeFocus && !query.activeFocus && !pageInput.activeFocus
     readonly property string documentName: documentPath.split("/").pop() || "sin documento"
@@ -124,11 +125,12 @@ FloatingWindow {
         if (number < 1 || (page.pageCount > 0 && number > page.pageCount)) return
         viewport.contentX = 0
         const singleHeight = page.pageHeight * 96/72 * viewport.effectiveScale
-        viewport.contentY = Math.max(0, Math.min(viewport.contentHeight - viewport.height, (number - 1) * (singleHeight + 16)))
+        viewport.contentY = Math.max(0, Math.min(viewport.contentHeight - viewport.height, (number - 1) * (singleHeight + 4)))
         page.goToPage(number)
     }
     function showSearch() { searchVisible = true; query.forceActiveFocus(); query.selectAll() }
     Shortcut { sequence: "Ctrl+F"; enabled: !picker.visible && !passwordDialog.visible; onActivated: window.showSearch() }
+    Shortcut { sequence: "Ctrl+E"; enabled: !picker.visible && !passwordDialog.visible && !passwordDialog.visible; onActivated: window.focusMode = !window.focusMode }
     Shortcut { sequence: "PgDown"; enabled: window.commandsEnabled; onActivated: window.changePage(page.currentPage + 1) }
     Shortcut { sequence: "PgUp"; enabled: window.commandsEnabled; onActivated: window.changePage(page.currentPage - 1) }
     Shortcut { sequence: "Ctrl+Home"; enabled: window.commandsEnabled; onActivated: window.changePage(1) }
@@ -141,7 +143,7 @@ FloatingWindow {
     Shortcut { sequence: "Ctrl+A"; enabled: window.commandsEnabled; onActivated: page.selectAll() }
     Shortcut { sequence: "F3"; enabled: !picker.visible && !passwordDialog.visible; onActivated: page.nextMatch(1) }
     Shortcut { sequence: "Shift+F3"; enabled: !picker.visible && !passwordDialog.visible; onActivated: page.nextMatch(-1) }
-    Shortcut { sequence: "Escape"; enabled: window.searchVisible && !picker.visible && !passwordDialog.visible; onActivated: { searchDelay.stop(); window.searchVisible = false; page.search(""); page.forceActiveFocus() } }
+    Shortcut { sequence: "Escape"; enabled: (window.searchVisible || window.focusMode) && !picker.visible && !passwordDialog.visible; onActivated: { if (window.focusMode) { window.focusMode = false } else { searchDelay.stop(); window.searchVisible = false; page.search(""); page.forceActiveFocus() } } }
     FilePicker {
         id: picker
         parent: canvas
@@ -165,35 +167,38 @@ FloatingWindow {
         }
         ColumnLayout {
             anchors.fill: parent
-            anchors.margins: 1
+            anchors.margins: 0
             spacing: 0
             Rectangle {
                 Layout.fillWidth: true
-                implicitHeight: 35
+                implicitHeight: window.focusMode ? 0 : 35
+                visible: !window.focusMode
                 color: theme.colors.surface
+                Behavior on implicitHeight { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
                 RowLayout {
                     anchors.fill: parent
-                    anchors.leftMargin: 12
-                    anchors.rightMargin: 8
-                    spacing: 14
+                    anchors.leftMargin: 6
+                    anchors.rightMargin: 4
+                    spacing: 8
                     Label { text: "▸ pdf-view"; color: theme.colors.accent; font.bold: true }
                     Label { Layout.fillWidth: true; text: window.documentPath || "~/"; opacity: 0.8; elide: Text.ElideMiddle }
                     Command { text: "[Ctrl+O] abrir"; onClicked: picker.open() }
                 }
             }
-            Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: theme.colors.border }
+            Rectangle { Layout.fillWidth: true; implicitHeight: 1; visible: !window.focusMode; color: theme.colors.border }
             RowLayout {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 spacing: 0
                 Rectangle {
                     Layout.preferredWidth: window.width < 720 ? 148 : 210
+                    visible: !window.focusMode
                     Layout.fillHeight: true
                     color: theme.colors.background
                     ColumnLayout {
                         anchors.fill: parent
-                        anchors.margins: 12
-                        spacing: 12
+                        anchors.margins: 6
+                        spacing: 6
                         Label { text: "DOCUMENTO"; opacity: 0.6; font.pixelSize: 10; font.letterSpacing: 1.5 }
                         Rectangle {
                             Layout.fillWidth: true
@@ -288,15 +293,16 @@ FloatingWindow {
                         }
                     }
                 }
-                Rectangle { Layout.fillHeight: true; implicitWidth: 1; color: theme.colors.border }
+                Rectangle { Layout.fillHeight: true; implicitWidth: 1; visible: !window.focusMode; color: theme.colors.border }
                 ColumnLayout {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     spacing: 0
                     Flow {
                         Layout.fillWidth: true
-                        Layout.margins: 5
-                        spacing: 3
+                        Layout.margins: 2
+                        visible: !window.focusMode
+                        spacing: 2
                         Command { text: "[‹]"; Accessible.name: "Página anterior"; enabled: page.currentPage > 1; onClicked: window.changePage(page.currentPage-1) }
                         Field {
                             id: pageInput
@@ -318,7 +324,7 @@ FloatingWindow {
                     RowLayout {
                         visible: window.searchVisible
                         Layout.fillWidth: true
-                        Layout.leftMargin: 8; Layout.rightMargin: 8
+                        Layout.leftMargin: 4; Layout.rightMargin: 4
                         Field {
                             id: query
                             Layout.fillWidth: true
@@ -334,7 +340,7 @@ FloatingWindow {
                         Command { text: "[x]"; onClicked: { searchDelay.stop(); window.searchVisible = false; page.search(""); page.forceActiveFocus() } }
                     }
                     Label {
-                        Layout.fillWidth: true; Layout.margins: 8
+                        Layout.fillWidth: true; Layout.margins: 4
                         visible: text.length > 0
                         text: window.openingError || page.auxiliaryError || page.searchError || (page.hasPage ? page.error : "")
                         color: theme.colors.error
@@ -351,9 +357,9 @@ FloatingWindow {
                             property real zoom: 1.0
                             readonly property real singleHeight: page.pageHeight * 96/72 * effectiveScale
                             readonly property real singleWidth: page.pageWidth * 96/72 * effectiveScale
-                            readonly property real totalDocHeight: page.pageCount > 0 ? page.pageCount * singleHeight + Math.max(0, page.pageCount - 1) * 16 : singleHeight
-                            readonly property real effectiveScale: fitMode === "width" ? Math.max(0.05, (width-32)/(page.pageWidth*96/72)) :
-                                (fitMode === "page" ? Math.max(0.05, Math.min((width-32)/(page.pageWidth*96/72), (height-32)/(page.pageHeight*96/72))) : zoom)
+                            readonly property real totalDocHeight: page.pageCount > 0 ? page.pageCount * singleHeight + Math.max(0, page.pageCount - 1) * 4 : singleHeight
+                            readonly property real effectiveScale: fitMode === "width" ? Math.max(0.05, width/(page.pageWidth*96/72)) :
+                                (fitMode === "page" ? Math.max(0.05, Math.min(width/(page.pageWidth*96/72), height/(page.pageHeight*96/72))) : zoom)
                             function scrollBy(delta) {
                                 const destination=Math.max(0,Math.min(contentHeight-height,(wheelScroll.running ? wheelScroll.to : contentY)+delta))
                                 wheelScroll.stop(); cancelFlick()
@@ -362,13 +368,13 @@ FloatingWindow {
                             NumberAnimation { id: wheelScroll; target: viewport; property: "contentY"; duration: 140; easing.type: Easing.OutCubic }
                             onDraggingChanged: if (dragging) wheelScroll.stop()
                             function adjustZoom(factor) { zoom = Math.max(0.25, Math.min(4, effectiveScale*factor)); fitMode = "manual" }
-                            contentWidth: Math.max(width, singleWidth + 32)
-                            contentHeight: Math.max(height, totalDocHeight + 32)
+                            contentWidth: Math.max(width, singleWidth)
+                            contentHeight: Math.max(height, totalDocHeight)
                             onContentXChanged: regionDelay.restart()
                             onContentYChanged: {
                                 regionDelay.restart()
                                 if (page.pageCount > 1) {
-                                    const pageIndex = Math.max(1, Math.min(page.pageCount, Math.floor((contentY + height/3) / (singleHeight + 16)) + 1))
+                                    const pageIndex = Math.max(1, Math.min(page.pageCount, Math.floor((contentY + height/3) / (singleHeight + 4)) + 1))
                                     if (pageIndex !== page.currentPage) {
                                         page.goToPage(pageIndex)
                                     }
@@ -402,7 +408,7 @@ FloatingWindow {
                                 visibleTop: Math.max(0,viewport.contentY-y)
                                 visibleHeight: viewport.height
                                 x: (viewport.contentWidth-width)/2
-                                y: (viewport.contentHeight-height)/2
+                                y: 0
                                 renderScale: viewport.effectiveScale*window.devicePixelRatio
                                 highlightColor: theme.colors.accent
                             }
@@ -430,11 +436,13 @@ FloatingWindow {
                     }
                 }
             }
-            Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: theme.colors.border }
+            Rectangle { Layout.fillWidth: true; implicitHeight: 1; visible: !window.focusMode; color: theme.colors.border }
             Rectangle {
                 Layout.fillWidth: true
-                implicitHeight: 25
+                implicitHeight: window.focusMode ? 0 : 25
+                visible: !window.focusMode
                 color: theme.colors.surface
+                Behavior on implicitHeight { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
                 RowLayout {
                     anchors.fill: parent
                     anchors.leftMargin: 10
