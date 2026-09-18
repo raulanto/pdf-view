@@ -396,12 +396,14 @@ impl Page {
             if data.is_null() || stride < width * 4 {
                 return Err("Imagen inválida.".into());
             }
-            let mut pixels = vec![0; width * height * 4];
+            // Alpha is always 0xff (white background painted above); emit RGB to save
+            // ~25% bytes in the PNG and base64 that cross the IPC boundary.
+            let mut pixels = vec![0u8; width * height * 3];
             for y in 0..height {
                 for x in 0..width {
                     let p = std::ptr::read_unaligned(data.add(y * stride + x * 4).cast::<u32>());
-                    let dest = &mut pixels[(y * width + x) * 4..][..4];
-                    dest.copy_from_slice(&[(p >> 16) as u8, (p >> 8) as u8, p as u8, 255]);
+                    let dest = &mut pixels[(y * width + x) * 3..][..3];
+                    dest.copy_from_slice(&[(p >> 16) as u8, (p >> 8) as u8, p as u8]);
                 }
             }
             Ok(Raster {
@@ -426,15 +428,10 @@ impl Page {
                         .into(),
                 );
             }
-            // Tesseract's four-channel input has native-endian packed RGB expectations; use RGB explicitly.
-            let rgb: Vec<u8> = image
-                .pixels
-                .chunks_exact(4)
-                .flat_map(|p| p[..3].iter().copied())
-                .collect();
+            // render() now emits RGB (3 bytes/pixel); pass directly to Tesseract.
             TessBaseAPISetImage(
                 engine.0,
-                rgb.as_ptr(),
+                image.pixels.as_ptr(),
                 image.width as i32,
                 image.height as i32,
                 3,
@@ -486,5 +483,87 @@ impl Page {
             }
             Ok(words)
         }
+    }
+}
+
+// PDFium is loaded only by the isolated worker. Poppler remains responsible for
+// text/OCR and permissions so the rendering experiment preserves those contracts.
+pub use pdfium_render::prelude::Pdfium;
+use pdfium_render::prelude::{
+    PdfBitmap, PdfBitmapFormat, PdfDocument, PdfPageRenderRotation, PdfRenderConfig,
+};
+pub fn load_pdfium() -> Result<Option<Pdfium>> {
+    match std::env::var("PDF_VIEW_ENGINE")
+        .as_deref()
+        .unwrap_or("poppler")
+    {
+        "poppler" => Ok(None),
+        "pdfium" => Pdfium::bind_to_library("/app/libpdfium.so")
+            .map(|bindings| Some(Pdfium::new(bindings)))
+            .map_err(|_| "No se pudo cargar la biblioteca PDFium compatible.".into()),
+        _ => Err("Motor PDF desconocido.".into()),
+    }
+}
+pub struct PdfiumDocument<'a>(PdfDocument<'a>);
+impl<'a> PdfiumDocument<'a> {
+    pub fn open(engine: &'a Pdfium, password: &str) -> Result<Self> {
+        engine
+            .load_pdf_from_file("/document.pdf", Some(password))
+            .map(Self)
+            .map_err(|_| "No se pudo abrir el documento con PDFium.".into())
+    }
+    pub fn render(
+        &self,
+        number: i32,
+        dpi: f64,
+        rotation: i32,
+        region: Option<Rect>,
+    ) -> Result<Raster> {
+        let page = self
+            .0
+            .pages()
+            .get(number - 1)
+            .map_err(|_| "No se pudo abrir la página en PDFium.")?;
+        let (w, h) = (
+            f64::from(page.width().value),
+            f64::from(page.height().value),
+        );
+        let (rw, rh) = if rotation % 2 == 0 { (w, h) } else { (h, w) };
+        let r = region.unwrap_or(Rect(0., 0., 1., 1.));
+        let width = (rw * dpi / 72. * r.2).round().max(1.) as usize;
+        let height = (rh * dpi / 72. * r.3).round().max(1.) as usize;
+        if width > 4096 || height > 4096 {
+            return Err("Imagen demasiado grande.".into());
+        }
+        let angle = match rotation {
+            1 => PdfPageRenderRotation::Degrees90,
+            2 => PdfPageRenderRotation::Degrees180,
+            3 => PdfPageRenderRotation::Degrees270,
+            _ => PdfPageRenderRotation::None,
+        };
+        let config = PdfRenderConfig::new()
+            .scale_page_by_factor((dpi / 72.) as f32)
+            .rotate(angle, true)
+            .set_origin(
+                -(r.0 * rw * dpi / 72.).round() as i32,
+                -(r.1 * rh * dpi / 72.).round() as i32,
+            );
+        let mut bitmap = PdfBitmap::empty(width as i32, height as i32, PdfBitmapFormat::BGRA)
+            .map_err(|_| "No se pudo crear la imagen PDFium.")?;
+        page.render_into_bitmap_with_config(&mut bitmap, &config)
+            .map_err(|_| "Falló el renderizado PDFium.")?;
+        let rgba = bitmap.as_rgba_bytes();
+        if rgba.len() != width * height * 4 {
+            return Err("Imagen PDFium inválida.".into());
+        }
+        let pixels = rgba
+            .chunks_exact(4)
+            .flat_map(|p| [p[0], p[1], p[2]])
+            .collect();
+        Ok(Raster {
+            width,
+            height,
+            pixels,
+        })
     }
 }

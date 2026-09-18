@@ -33,3 +33,11 @@ install(FILES packaging/pdf-view.desktop DESTINATION ${CMAKE_INSTALL_DATADIR}/ap
 install(FILES packaging/pdf-view.svg DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps)
 install(FILES README.md AGENTS.md DESTINATION ${CMAKE_INSTALL_DATADIR}/doc/pdf-view)
 install(DIRECTORY docs/ DESTINATION ${CMAKE_INSTALL_DATADIR}/doc/pdf-view/docs FILES_MATCHING PATTERN "*.md")
+
+# The optional local build and the Arch package use the same pinned PDFium archive.
+set(PDFIUM_ROOT "${CMAKE_BINARY_DIR}/pdfium" CACHE PATH "Extracted PDFium archive")
+if(EXISTS "${PDFIUM_ROOT}/lib/libpdfium.so")
+    install(FILES "${PDFIUM_ROOT}/lib/libpdfium.so" DESTINATION ${CMAKE_INSTALL_LIBEXECDIR}/pdf-view)
+    install(FILES "${PDFIUM_ROOT}/LICENSE" DESTINATION ${CMAKE_INSTALL_DATADIR}/licenses/pdf-view/pdfium)
+    install(DIRECTORY "${PDFIUM_ROOT}/licenses/" DESTINATION ${CMAKE_INSTALL_DATADIR}/licenses/pdf-view/pdfium)
+endif()

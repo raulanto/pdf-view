@@ -41,3 +41,5 @@ Estos dos comandos se ejecutan desde la raíz del repositorio, después de regre
 ## Versionado
 
 Al cambiar la versión, revisa CMake, PKGBUILD, el script de archivo fuente, el paquete Cargo afectado y los ejemplos de documentación. El servicio de temas tiene una versión independiente. Regenera el paquete después del último cambio que deba distribuirse; no edites el archivo generado como sustituto de editar las fuentes.
+
+El PKGBUILD también descarga PDFium 7881 Linux x86_64 con SHA-256 fijado. Instala `libpdfium.so` junto a `pdf-worker` y sus licencias en `/usr/share/licenses/pdf-view/pdfium`. El broker selecciona esa biblioteca por defecto; `PDF_VIEW_ENGINE=poppler` permite comparar. Para una instalación CMake, `PDFIUM_ROOT` señala el archivo extraído (por defecto `build/pdfium`). La licencia del código propio sigue pendiente de decisión del autor.

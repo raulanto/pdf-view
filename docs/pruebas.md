@@ -11,7 +11,7 @@ PDF_VIEW_TEST_THEME=1 ./scripts/smoke.sh
 cargo clippy --locked --offline --manifest-path rust/pdf/Cargo.toml --target-dir build/rust --all-targets -- -D warnings
 ```
 
-Las pruebas Rust validan protocolo, geometría y respuestas inválidas. `tests/backend.py` genera documentos sin dependencias Python adicionales y prueba renderizado, rotaciones, coincidencia entre coordenadas de búsqueda y selección, índice, miniaturas, regiones, rangos, OCR, modelos ausentes, caché con worker inaccesible, cancelación, URLs remotas, archivos inválidos y FIFO. Si está instalado `qpdf`, también comprueba contraseñas y permisos de copia. `sandbox-probe`, escrito en Rust, verifica la misma política de aislamiento que el worker.
+Las pruebas Rust validan protocolo, geometría y respuestas inválidas. `tests/backend.py` genera documentos sin dependencias Python adicionales y prueba renderizado, rotaciones, coincidencia entre coordenadas de búsqueda y selección, índice, miniaturas, regiones, rangos, OCR, modelos ausentes, caché y reutilización del worker aunque su ejecutable se renombre, cancelación de un worker bloqueado, imagen sin OCR, texto diferido, URLs remotas, archivos inválidos y FIFO. Si está instalado `qpdf`, también comprueba contraseñas y permisos de copia. `sandbox-probe`, escrito en Rust, verifica la misma política de aislamiento que el worker.
 
 `scripts/smoke.sh` requiere una sesión Wayland y abre ventanas temporales que se cierran solas. Comprueba el flujo del visor y la selección con eventos de ratón de Qt Test en cuatro orientaciones, arrastre, portapapeles y Shift+clic entre páginas. Guarda captura y registros en `build/`. La prueba de temas usa un archivo temporal y nunca cambia el escritorio. En entornos que bloquean namespaces deben ejecutarse las pruebas en el host; no se debe desactivar Bubblewrap.
 
@@ -48,3 +48,5 @@ Las pruebas visuales se ejecutan dentro de Quickshell, que registra sus módulos
 | Falla un recorrido visual | Revisa `build/smoke.log`, `build/interaction.log` y las capturas disponibles |
 
 Informa las pruebas omitidas o bloqueadas por el entorno. Para cambios solo de documentación basta validar enlaces, rutas, comandos y coherencia; no es necesario ejecutar la aplicación.
+
+Para repetir las pruebas con PDFium: `PDF_VIEW_ENGINE=pdfium PDF_VIEW_PDFIUM="$PWD/build/pdfium/lib/libpdfium.so" ./scripts/smoke.sh`. La misma suite verifica ambos motores; los tiempos de [Rendimiento](rendimiento.md) no son pruebas de aceptación para cualquier documento.

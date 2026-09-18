@@ -51,7 +51,7 @@ ShellRoot {
                     return
                 }
                 if (root.stage === 3) {
-                    if (doc.searching) return
+                    if (doc.searching || !doc.textReady) return
                     if (doc.matchCount !== 1 || doc.currentPage !== 1) { console.error("Search failed"); Qt.quit(); return }
                     doc.selectAll()
                     if (doc.selectedText.indexOf("Quickshell") === -1) { console.error("Selection failed"); Qt.quit(); return }

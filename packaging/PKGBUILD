@@ -10,10 +10,14 @@ license=('custom:unlicensed')
 depends=('quickshell' 'qt6-base' 'qt6-declarative' 'poppler-glib' 'cairo' 'bubblewrap' 'tesseract' 'tesseract-data-eng' 'python' 'bash')
 optdepends=('tesseract-data-spa: reconocimiento OCR en español')
 makedepends=('cmake' 'ninja' 'gcc' 'pkgconf' 'rust')
-source=("$pkgname-$pkgver.tar.gz")
-sha256sums=('SOURCE_SHA256')
+source=("$pkgname-$pkgver.tar.gz"
+        "pdfium-7881-linux-x64.tgz::https://github.com/bblanchon/pdfium-binaries/releases/download/chromium%2F7881/pdfium-linux-x64.tgz")
+noextract=('pdfium-7881-linux-x64.tgz')
+sha256sums=('SOURCE_SHA256' '1470e21b8b4a3b4ad7f85684e2da11d94f3b69a86d81dee11b9b6709d927ac1d')
 
 prepare() {
+    mkdir -p "$srcdir/pdfium"
+    tar -xzf "$srcdir/pdfium-7881-linux-x64.tgz" -C "$srcdir/pdfium"
     cd "$srcdir/$pkgname-$pkgver"
     cargo fetch --locked --manifest-path rust/theme/Cargo.toml
     cargo fetch --locked --manifest-path rust/pdf/Cargo.toml
@@ -22,7 +26,7 @@ build() {
     cmake -S "$srcdir/$pkgname-$pkgver" -B build -G Ninja \
         -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr \
         -DCMAKE_INSTALL_LIBDIR=lib -DCMAKE_INSTALL_LIBEXECDIR=lib \
-        -DBUILD_TESTING=OFF
+        -DBUILD_TESTING=OFF -DPDFIUM_ROOT="$srcdir/pdfium"
     cmake --build build --parallel 2
 }
 package() {

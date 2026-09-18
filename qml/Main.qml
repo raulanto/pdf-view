@@ -358,7 +358,7 @@ FloatingWindow {
                             onContentXChanged: regionDelay.restart()
                             onContentYChanged: {
                                 regionDelay.restart()
-                                if (page.pageCount > 1 && !page.busy) {
+                                if (page.pageCount > 1) {
                                     const pageIndex = Math.max(1, Math.min(page.pageCount, Math.floor((contentY + height/3) / (singleHeight + 16)) + 1))
                                     if (pageIndex !== page.currentPage) {
                                         page.goToPage(pageIndex)
@@ -379,6 +379,9 @@ FloatingWindow {
                                 id: page
                                 width: viewport.singleWidth
                                 height: viewport.totalDocHeight
+                                singleHeight: viewport.singleHeight
+                                visibleTop: Math.max(0,viewport.contentY-y)
+                                visibleHeight: viewport.height
                                 x: (viewport.contentWidth-width)/2
                                 y: (viewport.contentHeight-height)/2
                                 renderScale: viewport.effectiveScale*window.devicePixelRatio
@@ -394,7 +397,7 @@ FloatingWindow {
                             anchors.centerIn: parent
                             width: Math.min(parent.width - 32, 420)
                             spacing: 12
-                            visible: !page.hasPage
+                            visible: !page.hasPage && !page.busy
                             Label { text: page.busy ? "[ … ] cargando" : (page.error ? "[ ! ] error de apertura" : "[ pdf-view ]"); color: page.error ? theme.colors.error : theme.colors.accent }
                             Label {
                                 width: parent.width

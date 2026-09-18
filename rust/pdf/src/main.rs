@@ -16,6 +16,7 @@ use std::{
     process::{Command, Stdio},
     sync::{
         atomic::{AtomicBool, Ordering},
+        mpsc::{self, Receiver},
         Arc, Mutex,
     },
     thread,
@@ -29,7 +30,8 @@ struct Job {
 struct WorkerProcess {
     child: std::process::Child,
     stdin: std::process::ChildStdin,
-    stdout: std::io::BufReader<std::process::ChildStdout>,
+    frames: Receiver<Result<(Value, Vec<u8>)>>,
+    reader: Option<thread::JoinHandle<()>>,
 }
 impl WorkerProcess {
     fn spawn(worker: &PathBuf, file: &File) -> Result<Self> {
@@ -40,11 +42,20 @@ impl WorkerProcess {
             .spawn()
             .map_err(|e| format!("No se pudo iniciar el motor aislado: {e}"))?;
         let stdin = child.stdin.take().unwrap();
-        let stdout = std::io::BufReader::new(child.stdout.take().unwrap());
+        let mut stdout = std::io::BufReader::new(child.stdout.take().unwrap());
+        let (sender, frames) = mpsc::sync_channel(1);
+        let reader = thread::spawn(move || loop {
+            let frame = read_frame(&mut stdout);
+            let failed = frame.is_err();
+            if sender.send(frame).is_err() || failed {
+                break;
+            }
+        });
         Ok(Self {
             child,
             stdin,
-            stdout,
+            frames,
+            reader: Some(reader),
         })
     }
     fn kill(&mut self) {
@@ -52,12 +63,20 @@ impl WorkerProcess {
         let _ = self.child.wait();
     }
 }
-fn cancel(job: &mut Option<Job>, worker_slot: &Arc<Mutex<Option<WorkerProcess>>>) {
+impl Drop for WorkerProcess {
+    fn drop(&mut self) {
+        self.kill();
+        // Release a reader blocked on sending an unsolicited/extra frame.
+        let (_, empty) = mpsc::channel();
+        drop(std::mem::replace(&mut self.frames, empty));
+        if let Some(reader) = self.reader.take() {
+            let _ = reader.join();
+        }
+    }
+}
+fn cancel(job: &mut Option<Job>, _worker_slot: &Arc<Mutex<Option<WorkerProcess>>>) {
     if let Some(job) = job.take() {
         job.cancel.store(true, Ordering::Relaxed);
-        if let Some(mut wp) = worker_slot.lock().unwrap().take() {
-            wp.kill();
-        }
         let _ = job.thread.join();
     }
 }
@@ -175,6 +194,24 @@ fn sandbox(worker: &PathBuf, file: &File) -> Command {
     if std::path::Path::new("/etc/fonts").exists() {
         command.args(["--ro-bind", "/etc/fonts", "/etc/fonts"]);
     }
+    let library = std::env::var_os("PDF_VIEW_PDFIUM")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| worker.with_file_name("libpdfium.so"));
+    let engine = std::env::var("PDF_VIEW_ENGINE").unwrap_or_else(|_| {
+        if library.is_file() {
+            "pdfium"
+        } else {
+            "poppler"
+        }
+        .into()
+    });
+    command.args(["--setenv", "PDF_VIEW_ENGINE", &engine]);
+    if engine == "pdfium" {
+        command
+            .arg("--ro-bind")
+            .arg(library)
+            .arg("/app/libpdfium.so");
+    }
     command.args(["--", "/app/worker"]);
     // After fork use only allocation-free Rustix syscalls. Mark every inherited
     // descriptor CLOEXEC except the opened PDF; retain the spawn error pipe until exec.
@@ -259,9 +296,12 @@ fn validate(mut meta: Value, pixels: Vec<u8>, request: &Value) -> Result<Value> 
     };
     let pw = number(&meta, "pageWidth", 0.);
     let ph = number(&meta, "pageHeight", 0.);
-    if !(1..=max).contains(&w)
-        || !(1..=max).contains(&h)
-        || pixels.len() != (w * h * 4) as usize
+    let text_only = op == "text";
+    if (text_only && !pixels.is_empty())
+        || (!text_only
+            && (!(1..=max).contains(&w)
+                || !(1..=max).contains(&h)
+                || pixels.len() != (w * h * 3) as usize))
         || !(1..=1000000).contains(&integer(&meta, "pages", 0))
         || meta["page"] != request["page"]
         || meta["rotation"] != request["rotation"]
@@ -295,11 +335,14 @@ fn validate(mut meta: Value, pixels: Vec<u8>, request: &Value) -> Result<Value> 
             }
         }
     }
+    if text_only {
+        return Ok(meta);
+    }
     // Encode only validated raw pixels here: the UI never decodes an image supplied by the PDF parser.
     let mut png = Vec::new();
     {
         let mut encoder = png::Encoder::new(&mut png, w as u32, h as u32);
-        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_color(png::ColorType::Rgb);
         encoder.set_depth(png::BitDepth::Eight);
         encoder.set_compression(png::Compression::Fast);
         encoder
@@ -313,8 +356,6 @@ fn validate(mut meta: Value, pixels: Vec<u8>, request: &Value) -> Result<Value> 
 }
 fn execute(
     worker_slot: &Arc<Mutex<Option<WorkerProcess>>>,
-    worker_path: &PathBuf,
-    file: &File,
     request: &Value,
     cancel_flag: &AtomicBool,
 ) -> Result<Value> {
@@ -326,10 +367,7 @@ fn execute(
         45
     };
     let mut guard = worker_slot.lock().unwrap();
-    if guard.is_none() {
-        *guard = Some(WorkerProcess::spawn(worker_path, file)?);
-    }
-    let worker_proc = guard.as_mut().unwrap();
+    let worker_proc = guard.as_mut().ok_or("Motor no disponible.")?;
     if worker_proc.stdin.write_all(&input).is_err() {
         if let Some(mut wp) = guard.take() {
             wp.kill();
@@ -337,7 +375,16 @@ fn execute(
         return Err("No se pudo enviar la petición.".into());
     }
     let start = Instant::now();
-    let frame = read_frame(&mut worker_proc.stdout);
+    let frame = loop {
+        if cancel_flag.load(Ordering::Relaxed) || start.elapsed() > Duration::from_secs(limit) {
+            break Err("La operación excedió el tiempo permitido.".into());
+        }
+        match worker_proc.frames.recv_timeout(Duration::from_millis(20)) {
+            Ok(frame) => break frame,
+            Err(mpsc::RecvTimeoutError::Timeout) => continue,
+            Err(_) => break Err("El motor terminó sin responder.".into()),
+        }
+    };
     if cancel_flag.load(Ordering::Relaxed) || start.elapsed() > Duration::from_secs(limit) {
         if let Some(mut wp) = guard.take() {
             wp.kill();
@@ -401,6 +448,7 @@ fn main() -> io::Result<()> {
         if op == "open" {
             for (job, w) in jobs.iter_mut().zip(&workers) {
                 cancel(job, w);
+                w.lock().unwrap().take();
             }
             file = None;
             password.clear();
@@ -413,15 +461,20 @@ fn main() -> io::Result<()> {
                 }
             }
             req["op"] = json!("render");
-            req["outline"] = json!(true);
+            if req.get("outline").is_none() {
+                req["outline"] = json!(true);
+            }
         } else if op == "unlock" {
             for (job, w) in jobs.iter_mut().zip(&workers) {
                 cancel(job, w);
+                w.lock().unwrap().take();
             }
             cache.lock().unwrap().clear();
             password = req["password"].as_str().unwrap_or("").to_owned();
             req["op"] = json!("render");
-            req["outline"] = json!(true);
+            if req.get("outline").is_none() {
+                req["outline"] = json!(true);
+            }
         }
         let Some(file) = file.clone() else {
             emit(id, kind, json!({"error":"Abre un documento."}));
@@ -431,10 +484,9 @@ fn main() -> io::Result<()> {
             let next = (meta.mtime(), meta.mtime_nsec(), meta.len());
             if next != stamp {
                 cache.lock().unwrap().clear();
-                for w in &workers {
-                    if let Some(mut wp) = w.lock().unwrap().take() {
-                        wp.kill();
-                    }
+                for (job, w) in jobs.iter_mut().zip(&workers) {
+                    cancel(job, w);
+                    w.lock().unwrap().take();
                 }
                 stamp = next;
             }
@@ -456,13 +508,26 @@ fn main() -> io::Result<()> {
             continue;
         }
         req["password"] = json!(password);
+        // Bubblewrap's parent-death signal belongs to the spawning thread. Spawn
+        // on this long-lived thread so a completed render does not kill the worker.
+        {
+            let mut slot = workers[kind].lock().unwrap();
+            if slot.is_none() {
+                match WorkerProcess::spawn(&worker, &file) {
+                    Ok(process) => *slot = Some(process),
+                    Err(error) => {
+                        emit(id, kind, json!({"error":error}));
+                        continue;
+                    }
+                }
+            }
+        }
         let cancelled = Arc::new(AtomicBool::new(false));
         let flag = cancelled.clone();
-        let worker_path = worker.clone();
         let worker_slot = workers[kind].clone();
         let cache = cache.clone();
         let thread = thread::spawn(move || {
-            let value = match execute(&worker_slot, &worker_path, &file, &req, &flag) {
+            let value = match execute(&worker_slot, &req, &flag) {
                 Ok(v) => v,
                 Err(e) => json!({"error":e}),
             };

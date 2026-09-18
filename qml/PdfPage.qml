@@ -16,6 +16,17 @@ Item {
     readonly property real pageWidth: rotation % 180 ? originalHeight : originalWidth
     readonly property real pageHeight: rotation % 180 ? originalWidth : originalHeight
     property real renderScale: 1
+    property bool textReady: false
+    property bool needsText: false
+    property bool needsRefinement: false
+    property var pageImages: ({})
+    property var imageOrder: []
+    // The host supplies the height of one page; keep coordinates page-local.
+    property real singleHeight: height
+    property real visibleTop: (currentPage-1)*(singleHeight+16)
+    property real visibleHeight: singleHeight
+    readonly property int firstVisible: Math.max(1,Math.floor(visibleTop/(singleHeight+16)))
+    readonly property int lastVisible: Math.min(pageCount,Math.ceil((visibleTop+visibleHeight)/(singleHeight+16))+1)
     property bool passwordRequired: false
     property bool searching: false
     property string searchError: ""
@@ -34,7 +45,7 @@ Item {
     property int selectionStartPage: 0
     property int selectionStartWord: 0
     property rect normalizedRegion: Qt.rect(0,0,0,0)
-    readonly property rect regionRect: Qt.rect(normalizedRegion.x*width,normalizedRegion.y*height,normalizedRegion.width*width,normalizedRegion.height*height)
+    readonly property rect regionRect: Qt.rect(normalizedRegion.x*width,normalizedRegion.y*singleHeight,normalizedRegion.width*width,normalizedRegion.height*singleHeight)
     property color highlightColor: "#7aa2f7"
     property var words: []
     property int anchor: -1
@@ -89,21 +100,25 @@ Item {
         changed()
     }
     function renderRequest(op) {
-        return {op:op,page:currentPage,rotation:rotation/90,dpi:Math.max(18,Math.min(768,144*renderScale)),outline:outline.length===0}
+        return {op:op,page:currentPage,rotation:rotation/90,dpi:Math.max(18,Math.min(768,144*renderScale)),outline:false,text:false}
     }
     function open(url) {
         if (!ready) { opening=url; backend.running=true; return }
         renderDelay.stop(); regionDelay.stop()
         cancel(0); cancel(1); cancel(2)
         documentUrl=url.toString(); pageCount=0; currentPage=1; rotation=0; canCopy=false; passwordRequired=false
-        preview.source=""; words=[]; outline=[]; thumbnails={}; thumbnailOrder=[]; thumbnailQueue=[]; failedThumbnails={}
+        preview.source=""; pageImages={}; imageOrder=[]; textReady=false; needsText=true; needsRefinement=false; words=[]; outline=[]; thumbnails={}; thumbnailOrder=[]; thumbnailQueue=[]; failedThumbnails={}
         searchError=""; auxiliaryError=""; matches=[]; matchIndex=-1; searchTruncated=false; selectionStartPage=0; clearSelection(); resetRegion()
-        const request=renderRequest("open"); request.url=documentUrl; send(0,request)
+        const request=renderRequest("open"); request.url=documentUrl; request.dpi=54; needsRefinement=true; send(0,request)
     }
-    function unlock(password) { const request=renderRequest("unlock"); request.password=password; passwordRequired=false; send(0,request) }
+    function unlock(password) { needsText=true; needsRefinement=true; const request=renderRequest("unlock"); request.dpi=54; request.password=password; passwordRequired=false; send(0,request) }
     function render() {
         renderDelay.stop()
-        if (documentUrl && !passwordRequired) send(0,renderRequest("render"))
+        if (documentUrl && !passwordRequired) {
+            const request=renderRequest("render")
+            if (!hasPage) { request.dpi=54; needsRefinement=true }
+            send(0,request)
+        }
     }
     function receive(message) {
         const kind=message.kind, request=pending[kind]
@@ -123,6 +138,11 @@ Item {
             if (matches.length) nextMatch(1)
         } else if (request.op==="extract") {
             anchor=-1; cursor=-1; selectedText=data.text
+        } else if (request.op==="text") {
+            if (request.page===currentPage && request.rotation===rotation/90) {
+                words=data.words; textReady=true
+                if (data.outline) outline=data.outline
+            }
         } else if (request.op==="thumbnail") {
             const images=Object.assign({},thumbnails); images[request.page]=data.image
             thumbnailOrder.push(request.page)
@@ -133,10 +153,12 @@ Item {
                 normalizedRegion=Qt.rect(request.region[0],request.region[1],request.region[2],request.region[3]); detail.source=data.image
             }
         } else {
-            const sameText=words.length===data.words.length && words.every((w,i)=>w.text===data.words[i].text)
-            if (!sameText) clearSelection()
-            originalWidth=data.pageWidth; originalHeight=data.pageHeight; pageCount=data.pages; words=data.words
+            originalWidth=data.pageWidth; originalHeight=data.pageHeight; pageCount=data.pages
             canCopy=data.canCopy; passwordRequired=false; preview.source=data.image
+            const key=currentPage+":"+rotation, images=Object.assign({},pageImages)
+            images[key]=data.image; imageOrder=imageOrder.filter(k=>k!==key); imageOrder.push(key)
+            while (imageOrder.length>6 || imageOrder.reduce((n,k)=>n+images[k].length,0)>48*1024*1024) delete images[imageOrder.shift()]
+            pageImages=images
             if (data.outline) outline=data.outline
             revealCurrentMatch()
         }
@@ -144,11 +166,15 @@ Item {
     }
     function goToPage(number) {
         if (number<1 || number>pageCount || number===currentPage) return
-        resetRegion(); currentPage=number; preview.source=""; words=[]; clearSelection(); render()
+        cancelAuxiliary(); resetRegion(); currentPage=number
+        preview.source=pageImages[number+":"+rotation] || (rotation===0 ? thumbnails[number] || "" : "")
+        words=[]; textReady=false; needsText=true; needsRefinement=false; clearSelection(); render()
     }
     function rotatePage(steps) {
         if (!pageCount) return
-        resetRegion(); rotation=((rotation+steps*90)%360+360)%360; preview.source=""; words=[]; clearSelection(); render()
+        cancelAuxiliary(); resetRegion(); rotation=((rotation+steps*90)%360+360)%360
+        preview.source=pageImages[currentPage+":"+rotation] || ""
+        words=[]; textReady=false; needsText=true; needsRefinement=false; clearSelection(); render()
     }
     function search(query) {
         cancel(1); matches=[]; matchIndex=-1; searchTruncated=false; searchError=""; highlights.requestPaint()
@@ -166,11 +192,11 @@ Item {
         if (rotation===90) { x=originalHeight-rect[1]-rect[3]; y=rect[0]; w=rect[3]; h=rect[2] }
         if (rotation===180) { x=originalWidth-rect[0]-rect[2]; y=originalHeight-rect[1]-rect[3] }
         if (rotation===270) { x=rect[1]; y=originalWidth-rect[0]-rect[2]; w=rect[3]; h=rect[2] }
-        return Qt.rect(x*width/pageWidth,y*height/pageHeight,w*width/pageWidth,h*height/pageHeight)
+        return Qt.rect(x*width/pageWidth,y*singleHeight/pageHeight,w*width/pageWidth,h*singleHeight/pageHeight)
     }
     function revealCurrentMatch() {
         if (matchIndex>=0 && matches[matchIndex].page===currentPage && hasPage) {
-            const r=mapRect(matches[matchIndex].rect); revealMatch(Qt.point(r.x+r.width/2,r.y+r.height/2))
+            const r=mapRect(matches[matchIndex].rect); revealMatch(Qt.point(r.x+r.width/2,r.y+r.height/2+(currentPage-1)*(singleHeight+16)))
         }
     }
     function wordAt(x,y) {
@@ -200,6 +226,7 @@ Item {
         cancelAuxiliary(); clearSelection(); send(2,{op:"extract",first:first,last:last})
     }
     function cancelAuxiliary() {
+        if (pending[2] && pending[2].op==="text") needsText=true
         if (pending[2] && pending[2].op==="thumbnail") thumbnailQueue.unshift(pending[2].page)
         cancel(2)
     }
@@ -209,8 +236,14 @@ Item {
         thumbnailQueue.push(number); pumpAuxiliary()
     }
     function pumpAuxiliary() {
-        if (auxiliaryBusy || busy || !pageCount || passwordRequired) return
-        if (pendingRegion) {
+        if (busy || !pageCount || passwordRequired) return
+        if (needsRefinement) { needsRefinement=false; send(0,renderRequest("render")) }
+        if (auxiliaryBusy) return
+        if (needsText) {
+            needsText=false
+            send(2,{op:"text",page:currentPage,rotation:rotation/90,outline:outline.length===0})
+            requestThumbnail(currentPage-1); requestThumbnail(currentPage+1)
+        } else if (pendingRegion) {
             const r=pendingRegion; pendingRegion=null
             send(2,{op:"region",page:currentPage,rotation:rotation/90,region:r,dpi:Math.max(18,Math.min(144*renderScale,2040*72/(r[2]*pageWidth),2040*72/(r[3]*pageHeight),768))})
         } else if (thumbnailQueue.length) send(2,{op:"thumbnail",page:thumbnailQueue.shift(),rotation:0,dpi:72})
@@ -221,15 +254,16 @@ Item {
     }
     function requestRegion(visible) {
         if (!hasPage || width<=0 || height<=0 || renderScale<=1.25) return
-        const x=Math.max(0,visible.x),y=Math.max(0,visible.y),w=Math.min(width,visible.x+visible.width)-x,h=Math.min(height,visible.y+visible.height)-y
+        const top=visible.y-(currentPage-1)*(singleHeight+16)
+        const x=Math.max(0,visible.x),y=Math.max(0,top),w=Math.min(width,visible.x+visible.width)-x,h=Math.min(singleHeight,top+visible.height)-y
         if (w<=0 || h<=0) return
-        const r=[x/width,y/height,w/width,h/height],old=normalizedRegion
+        const r=[x/width,y/singleHeight,w/width,h/singleHeight],old=normalizedRegion
         if (r[0]===old.x && r[1]===old.y && r[2]===old.width && r[3]===old.height) return
         pendingRegion=r; regionDelay.restart()
     }
     onRenderScaleChanged: { resetRegion(); if (documentUrl && !passwordRequired) renderDelay.restart() }
-    onOcrEnabledChanged: { selectionStartPage=0;clearSelection();search("");cancelAuxiliary();resetRegion();render() }
-    onOcrLanguageChanged: { if (ocrEnabled) {selectionStartPage=0;clearSelection();search("");cancelAuxiliary();resetRegion();render()} }
+    onOcrEnabledChanged: { selectionStartPage=0;clearSelection();search("");cancelAuxiliary();resetRegion();words=[];textReady=false;needsText=true;render() }
+    onOcrLanguageChanged: { if (ocrEnabled) {selectionStartPage=0;clearSelection();search("");cancelAuxiliary();resetRegion();words=[];textReady=false;needsText=true;render()} }
     onHighlightColorChanged: highlights.requestPaint()
     onWidthChanged: highlights.requestPaint()
     onHeightChanged: highlights.requestPaint()
@@ -237,19 +271,19 @@ Item {
     Timer { id: regionDelay; interval:180; onTriggered: page.pumpAuxiliary() }
     Image { id: preview; visible: false; cache:false; smooth:true }
     Image { id: detail; visible: false; cache:false; smooth:true }
-    Column {
-        id: pageColumn
-        anchors.horizontalCenter: parent.horizontalCenter
-        spacing: 16
+    Item {
+        anchors.fill: parent
         Repeater {
-            model: Math.max(1, page.pageCount)
+            model: Math.max(0,page.lastVisible-page.firstVisible+1)
             delegate: Item {
                 id: pageFrame
                 required property int index
-                readonly property int pageNum: index + 1
+                readonly property int pageNum: page.firstVisible + index
                 readonly property bool isCurrent: pageNum === page.currentPage
                 width: page.width
-                height: page.pageHeight * 96/72 * page.renderScale / (typeof window !== "undefined" && window ? window.devicePixelRatio : 1)
+                height: page.singleHeight
+                y: (pageNum-1)*(height+16)
+                Component.onCompleted: page.requestThumbnail(pageNum)
                 
                 Rectangle {
                     anchors.fill: parent
@@ -262,7 +296,7 @@ Item {
                     anchors.fill: parent
                     cache: false
                     smooth: true
-                    source: isCurrent && preview.source.toString().length > 0 ? preview.source : (page.thumbnails[String(pageNum)] || "")
+                    source: isCurrent && preview.source.toString().length > 0 ? preview.source : (page.pageImages[pageNum+":"+page.rotation] || (page.rotation===0 ? page.thumbnails[String(pageNum)] || "" : ""))
                 }
                 
                 Image {
@@ -300,7 +334,8 @@ Item {
         }
     }
     MouseArea {
-        anchors.fill: parent
+        width: parent.width; height: page.singleHeight
+        y: (page.currentPage-1)*(page.singleHeight+16)
         acceptedButtons: Qt.LeftButton
         cursorShape: Qt.IBeamCursor
         onPressed: mouse => {

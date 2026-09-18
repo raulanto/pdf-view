@@ -4,11 +4,11 @@
 
 - `qml/Main.qml`, `FilePicker.qml`, `PdfPage.qml`: ventana, controles, presentación de imágenes, resaltados, selección con ratón y portapapeles. Todo el frontend permanece en Quickshell.
 - `rust/pdf/src/main.rs`: servicio `pdf-view-backend`. Abre documentos locales, conserva el descriptor, usa Rustix para los descriptores del proceso, controla tres canales de trabajo, cancela solicitudes, aplica timeouts, valida respuestas y mantiene la caché.
-- `rust/pdf/src/worker.rs` y `native.rs`: ejecutable `pdf-worker`, operaciones PDF/OCR y única frontera FFI. Nunca se carga Poppler o Tesseract en el servicio que tiene acceso al entorno del usuario.
+- `rust/pdf/src/worker.rs` y `native.rs`: ejecutable `pdf-worker`, operaciones PDF/OCR y única frontera FFI. Nunca se carga PDFium, Poppler o Tesseract en el servicio que tiene acceso al entorno del usuario.
 - `rust/pdf/src/lib.rs`: protocolo, límites y tipos compartidos.
 - `rust/theme`: servicio de temas Rust con `toml`, `notify` y salida JSON.
 
-Quickshell usa `Quickshell.Io.Process` y JSON por líneas sobre stdin/stdout. Cada solicitud lleva un identificador; la interfaz descarta respuestas anteriores al cambiar de documento, página o consulta. No hay servidor HTTP, sockets abiertos ni contraseñas en argumentos de proceso. El worker también usa JSON por líneas: devuelve metadatos y píxeles RGBA sin compresión, codificados en base64. Rust valida la respuesta y codifica el PNG que consume QML; el parser PDF nunca entrega directamente un archivo de imagen a Qt.
+Quickshell usa `Quickshell.Io.Process` y JSON por líneas sobre stdin/stdout. Cada solicitud lleva un identificador; la interfaz descarta respuestas anteriores al cambiar de documento, página o consulta. No hay servidor HTTP, sockets abiertos ni contraseñas en argumentos de proceso. El worker también usa JSON por líneas: devuelve metadatos y píxeles RGB sin compresión, codificados en base64. Rust valida la respuesta y codifica el PNG que consume QML; el parser PDF nunca entrega directamente un archivo de imagen a Qt.
 
 ## Flujo de un documento
 
@@ -22,7 +22,7 @@ Quickshell usa `Quickshell.Io.Process` y JSON por líneas sobre stdin/stdout. Ca
 flowchart LR
     Q[Quickshell / QML] <-->|JSON por líneas| B[Backend Rust]
     B <-->|JSON por líneas| W[Worker Rust en Bubblewrap]
-    W --> N[Poppler GLib / Cairo / Tesseract]
+    W --> N[PDFium / Poppler GLib / Cairo / Tesseract]
     T[Temas Rust] -->|Paleta JSON| Q
     F[colors.toml de Omarchy] --> T
 ```
@@ -33,11 +33,11 @@ flowchart LR
 |---|---|
 | QML → backend | `id`, `kind`, `op` y parámetros de la operación |
 | Backend → QML | `id`, `kind`, `data` |
-| Backend → worker | Una operación por proceso; parámetros por stdin y PDF montado por descriptor |
-| Worker → backend | `meta` y `pixels`; RGBA codificado en base64 |
+| Backend → worker | Operaciones secuenciales por worker persistente; parámetros por stdin y PDF montado por descriptor |
+| Worker → backend | `meta` y `pixels`; RGB codificado en base64 |
 | Temas → QML | `palette` y `status`, sin solicitud previa |
 
-`kind` distingue renderizado (`0`), búsqueda (`1`) y operaciones auxiliares (`2`). Las operaciones del visor incluyen `open`, `unlock`, `render`, `search`, `thumbnail`, `region`, `extract` y `cancel`. El backend gestiona apertura, contraseña y cancelación; el worker ejecuta las operaciones PDF.
+`kind` distingue renderizado (`0`), búsqueda (`1`) y operaciones auxiliares (`2`). Las operaciones del visor incluyen `open`, `unlock`, `render`, `search`, `thumbnail`, `region`, `text`, `extract` y `cancel`. El backend gestiona apertura, contraseña y cancelación; el worker ejecuta las operaciones PDF.
 
 Los índices de página empiezan en 1. La rotación del worker se expresa en cuartos de vuelta, de 0 a 3; la interfaz presenta grados. Las palabras usan rectángulos en puntos PDF con origen superior izquierdo; QML transforma las coordenadas según la rotación. Las regiones de detalle usan coordenadas normalizadas sobre la página rotada.
 
@@ -47,6 +47,14 @@ Stdout está reservado al protocolo y stderr a diagnósticos. El backend retira 
 
 Existen tres canales de trabajo. Una solicitud nueva cancela la anterior del mismo canal; al abrir otro documento se cancelan todos. QML también descarta respuestas obsoletas. Las miniaturas y regiones comparten el canal auxiliar con la extracción de rangos.
 
-La caché vive en el backend y contiene respuestas de imagen validadas. Se invalida al abrir otro documento, cambiar de contraseña o detectar cambios en tamaño/fecha del archivo. Los parámetros de OCR forman parte de las solicitudes y distinguen sus resultados. Cada operación sin caché abre el PDF dentro de un worker nuevo.
+La caché vive en el backend y contiene respuestas de imagen validadas. Se invalida al abrir otro documento, cambiar de contraseña o detectar cambios en tamaño/fecha del archivo. Los parámetros de OCR forman parte de las solicitudes y distinguen sus resultados. Cada canal reutiliza un worker y su documento abierto. La apertura de otro archivo, cambios del archivo o de contraseña descartan los workers. La cancelación activa o un error de protocolo también descartan el worker afectado.
 
 La interfaz utiliza `Image` y `Canvas` de Qt Quick, sin un módulo Qt/C++ propio. Consulta los presupuestos concretos en [Seguridad y límites](seguridad.md).
+
+## Primera imagen y texto diferido
+
+QML abre con 54 dpi, `text:false` y `outline:false`. La imagen se publica sin esperar extracción, índice ni OCR. Después solicita el renderizado de mayor resolución en el canal 0 y `text` en el canal 2; la selección se habilita al llegar las palabras. Un fallo de OCR no retira la imagen visible. La primera apertura sigue teniendo un tiempo de procesamiento real; no se muestra un modal de carga.
+
+PDFium se usa para imagen base, miniaturas y regiones. Poppler mantiene geometría, permisos, búsqueda, índice y texto; Tesseract conserva OCR. El binding y la biblioteca PDFium solo se cargan en el worker, montada en `/app/libpdfium.so`. No se copian bibliotecas al directorio personal ni se ejecutan acciones del PDF.
+
+El visor precarga miniaturas de páginas vecinas, conserva imágenes recientes para volver a ellas y mantiene la imagen al refinar el zoom. Crea delegados únicamente para páginas visibles y próximas. El flujo continuo actual aproxima la altura de todas las páginas con la de la página activa; documentos de tamaños mixtos todavía pueden mover el desplazamiento al cambiar de página.

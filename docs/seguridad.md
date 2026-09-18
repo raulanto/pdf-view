@@ -14,6 +14,7 @@ Bubblewrap recibe el descriptor de un archivo regular abierto en solo lectura y 
 | Imagen base / detalle visible | Lado mayor 2000 px / hasta 2048 × 2048 px |
 | Zoom manual | 25–400%; ajuste automático según ventana |
 | Caché de respuestas | Presupuesto de 96 MiB, adicional a imágenes y objetos activos |
+| Imágenes recientes en QML | Hasta 6; presupuesto de 48 Mi caracteres de URLs de imagen, además de la imagen activa |
 | Miniaturas | Hasta 48 en la interfaz, lado mayor 220 px; cola de 24 |
 | Texto por página | 50 000 palabras, 4096 caracteres por palabra |
 | Búsqueda | 2000 coincidencias; `+` indica truncamiento |
@@ -21,15 +22,15 @@ Bubblewrap recibe el descriptor de un archivo regular abierto en solo lectura y 
 | Índice | 2048 entradas, 16 niveles |
 | OCR | Hasta 220 dpi y 2600 px de lado mayor |
 
-Las peticiones sin caché vuelven a abrir el PDF en un worker nuevo. La caché se vacía al abrir otro documento, cambiar de contraseña o detectar cambios en tamaño/fecha del archivo; las vistas ya mostradas requieren reabrir el documento para reflejar cambios externos. El detalle visible se agrupa durante 180 ms. Las contraseñas solo se conservan en memoria y viajan por stdin.
+Las peticiones sin caché reutilizan el documento de un worker persistente por canal. La cancelación interrumpe la espera en intervalos de 20 ms y termina el worker activo. Se mantienen 30 segundos de CPU acumulada por proceso: alcanzar ese límite produce un error recuperable y la siguiente petición crea otro worker. La caché se vacía al abrir otro documento, cambiar de contraseña o detectar cambios en tamaño/fecha del archivo; las vistas ya mostradas requieren reabrir el documento para reflejar cambios externos. El detalle visible se agrupa durante 180 ms. Las contraseñas solo se conservan en memoria y viajan por stdin.
 
 Este aislamiento no equivale a una auditoría de seguridad: `/usr` completo se monta en lectura, no hay filtro seccomp, las bibliotecas nativas usan FFI y los límites no son un cgroup global. Las pruebas con corpus hostiles y el endurecimiento adicional siguen pendientes.
 
 ## Fronteras de confianza
 
-El documento y la salida del worker son entradas no confiables. El backend valida metadatos, dimensiones, coordenadas, cantidades de texto y tamaños antes de entregar datos a QML. El PNG se genera desde los píxeles RGBA validados, no desde un archivo de imagen comprimido suministrado por el parser PDF.
+El documento y la salida del worker son entradas no confiables. El backend valida metadatos, dimensiones, coordenadas, cantidades de texto y tamaños antes de entregar datos a QML. El PNG se genera desde los píxeles RGB validados, no desde un archivo de imagen comprimido suministrado por el parser PDF.
 
-Las llamadas FFI a Poppler GLib, Cairo y Tesseract permanecen en el worker. Rust reduce riesgos en el código propio, pero no convierte esas bibliotecas en código Rust ni elimina los riesgos de procesar archivos hostiles.
+Las llamadas FFI a PDFium, Poppler GLib, Cairo y Tesseract permanecen en el worker. Rust reduce riesgos en el código propio, pero no convierte esas bibliotecas en código Rust ni elimina los riesgos de procesar archivos hostiles.
 
 La aplicación respeta permisos de copia y no ejecuta acciones, enlaces externos ni JavaScript incrustado. No usa servicios remotos, telemetría ni persistencia de contraseñas. La selección solo se envía al portapapeles al solicitar la copia.
 

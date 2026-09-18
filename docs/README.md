@@ -7,6 +7,7 @@ PDF View es un visor PDF local para Arch Linux y Omarchy. La interfaz está hech
 | Documento | Contenido |
 |---|---|
 | [Uso](uso.md) | Controles, atajos, OCR y colores de Omarchy |
+| [Rendimiento y motores](rendimiento.md) | PDFium, carga progresiva y comparación reproducible |
 | [Arquitectura](arquitectura.md) | Componentes, flujo de documentos, IPC y caché |
 | [Desarrollo](desarrollo.md) | Dependencias, compilación, iteración y variables de entorno |
 | [Seguridad y límites](seguridad.md) | Aislamiento, validación, presupuestos y limitaciones conocidas |
@@ -17,7 +18,7 @@ Para empezar a usar el visor, consulta Uso. Para compilarlo o modificarlo, empie
 
 ## Alcance
 
-El visor trabaja con archivos locales y es de solo lectura. Zoom, rotación y OCR no guardan cambios en el PDF. No incluye edición, firmas, anotaciones persistentes, cuentas ni sincronización remota. Poppler, Cairo, Tesseract y Quickshell/Qt siguen siendo bibliotecas externas; el backend propio está escrito en Rust.
+El visor trabaja con archivos locales y es de solo lectura. Zoom, rotación y OCR no guardan cambios en el PDF. No incluye edición, firmas, anotaciones persistentes, cuentas ni sincronización remota. PDFium, Poppler, Cairo, Tesseract y Quickshell/Qt siguen siendo bibliotecas externas; el backend propio está escrito en Rust.
 
 Esta documentación describe la versión 0.5.0. Actualiza la guía del área afectada cuando cambien contratos, comandos o límites; evita duplicar esos detalles en varias guías.
 

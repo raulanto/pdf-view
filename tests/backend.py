@@ -115,6 +115,11 @@ with tempfile.TemporaryDirectory() as directory:
         assert first['pages']==2 and first['canCopy']
         assert first['outline']==[dict(title='Chapter Two', page=2, depth=0)]
         assert 'Quickshell' in ' '.join(w['text'] for w in first['words'])
+        quick=broker.call('render', dpi=54, text=False, outline=False, ocr=True, language='missingmodel')
+        image(quick); assert quick['words']==[] and 'outline' not in quick
+        text_page=broker.call('text',kind=2,outline=True)
+        assert 'image' not in text_page and text_page['words']==first['words']
+        assert text_page['outline']==first['outline']
         word=next(w for w in first['words'] if w['text']=='Quickshell')
         for rotation in range(4):
             page=broker.call('render', page=2, rotation=rotation, dpi=500); image(page)
@@ -171,8 +176,20 @@ with tempfile.TemporaryDirectory() as directory:
         cached=cached_broker.call('render',page=1)
         worker.rename(root/'disabled-worker')
         assert cached_broker.call('render',page=1)==cached
-        assert 'error' in cached_broker.call('render',page=2)
+        image(cached_broker.call('render',page=2))  # live worker retains its document
+        assert 'error' in cached_broker.call('open',url=old.as_uri())
     finally: cached_broker.close()
+    hanging=root/'hanging-worker'
+    hanging.write_text('#!/usr/bin/python3\nimport sys,time\nsys.stdin.readline()\ntime.sleep(60)\n')
+    hanging.chmod(0o700)
+    stalled=Broker(hanging)
+    stalled.send('open',url=old.as_uri())
+    time.sleep(0.15)
+    started=time.monotonic()
+    stalled.send('cancel')
+    assert 'error' in stalled.call('open',url='https://example.com/rejected')
+    stalled.close()
+    assert time.monotonic()-started<2, 'cancellation blocked behind worker output'
     private=root/'private-descriptor';private.write_text('must not reach the worker')
     with private.open('rb') as secret:
         probe=Broker(Path(sys.argv[1]).with_name('sandbox-probe'),pass_fds=(secret.fileno(),))

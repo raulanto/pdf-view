@@ -32,6 +32,8 @@ El lanzador abre Quickshell y configura las rutas de los servicios Rust. No inst
 | Variable | Uso |
 |---|---|
 | `PDF_VIEW_BACKEND` | Ruta del servicio de documentos Rust |
+| `PDF_VIEW_ENGINE` | `pdfium` o `poppler`; sin definir, usa PDFium si encuentra su biblioteca |
+| `PDF_VIEW_PDFIUM` | Ruta explícita a `libpdfium.so`; si falta, busca junto al worker |
 | `PDF_VIEW_WORKER` | Ruta del worker aislado |
 | `PDF_VIEW_THEME_HELPER` | Ruta del servicio de temas |
 | `PDF_VIEW_DOCUMENT` | URL `file:` que abre QML al iniciar |
@@ -49,3 +51,5 @@ Mantén el frontend en Quickshell, la lógica de servicios en Rust y las bibliot
 Conserva el diseño monoespaciado, la paleta compartida, el foco visible, los nombres accesibles y los atajos. Los textos de documentos se muestran como texto plano. Un cambio IPC debe actualizar sus productores, consumidores y pruebas.
 
 Consulta [Pruebas y diagnóstico](pruebas.md) antes de entregar cambios y [Empaquetado](empaquetado.md) para generar una distribución local.
+
+Para preparar el motor de renderizado recomendado antes de configurar CMake, ejecuta `./scripts/fetch-pdfium.sh` (requiere `curl` y red). Descarga PDFium 7881 Linux x86_64, verifica SHA-256 y conserva sus licencias en `build/pdfium`. `pdfium-render` 0.9.4 está fijado en Cargo; no trae la biblioteca nativa. Sin ella se puede compilar y utilizar Poppler. Véase [Rendimiento](rendimiento.md).

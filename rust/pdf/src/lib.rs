@@ -4,7 +4,7 @@ use serde_json::Value;
 use std::io::{self, BufRead, Read, Write};
 
 pub const MAX_META: usize = 8 * 1024 * 1024;
-pub const MAX_PIXELS: usize = 4096 * 4096 * 4;
+pub const MAX_PIXELS: usize = 4096 * 4096 * 3; // RGB, no alpha channel
 pub const MAX_FRAME: usize = MAX_META + MAX_PIXELS.div_ceil(3) * 4 + 128;
 pub type Result<T> = std::result::Result<T, String>;
 
@@ -61,7 +61,7 @@ pub fn language_valid(s: &str) -> bool {
         && s.bytes()
             .all(|b| b.is_ascii_lowercase() || b == b'_' || b == b'+')
 }
-// Both IPC boundaries use newline-delimited JSON. Pixels are raw RGBA in base64,
+// Both IPC boundaries use newline-delimited JSON. Pixels are raw RGB in base64,
 // never a compressed image that could bypass the broker's dimension checks.
 pub fn read_frame(mut input: impl BufRead) -> Result<(Value, Vec<u8>)> {
     let mut data = Vec::new();

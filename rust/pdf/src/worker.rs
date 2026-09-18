@@ -2,8 +2,10 @@ mod native;
 use native::Document;
 use pdf_view_backend::*;
 use serde_json::{json, Value};
-use std::io::BufRead;
-fn run(
+use std::io::{BufRead, Read};
+fn run<'a>(
+    pdfium: Option<&'a native::Pdfium>,
+    pdfium_doc: &mut Option<native::PdfiumDocument<'a>>,
     doc_slot: &mut Option<Document>,
     current_pass: &mut String,
     v: &Value,
@@ -20,6 +22,7 @@ fn run(
     }
     if doc_slot.is_none() || password != current_pass {
         *doc_slot = None;
+        *pdfium_doc = None;
         *doc_slot = Some(Document::open(password)?);
         *current_pass = password.to_string();
     }
@@ -112,7 +115,7 @@ fn run(
         }
         return Ok((json!({"matches":matches,"truncated":truncated}), vec![]));
     }
-    if !["render", "thumbnail", "region"].contains(&op) {
+    if !["render", "thumbnail", "region", "text"].contains(&op) {
         return Err("Operación desconocida.".into());
     }
     let number = integer(v, "page", 1);
@@ -127,6 +130,19 @@ fn run(
     }
     let page = doc.page(number as i32)?;
     let (w, h) = page.size()?;
+    if op == "text" {
+        let words = if doc.can_copy() {
+            page.words(ocr, lang)?
+        } else {
+            vec![]
+        };
+        let mut meta = json!({"pages":doc.pages(),"page":number,"rotation":rotation,
+            "pageWidth":w,"pageHeight":h,"canCopy":doc.can_copy(),"words":words});
+        if v["outline"] == true {
+            meta["outline"] = json!(doc.outline());
+        }
+        return Ok((meta, vec![]));
+    }
     let dpi = if op == "region" {
         requested
     } else {
@@ -149,11 +165,21 @@ fn run(
     } else {
         None
     };
-    let image = page.render(dpi, rotation as i32, region)?;
+    let image = if let Some(engine) = pdfium {
+        if pdfium_doc.is_none() {
+            *pdfium_doc = Some(native::PdfiumDocument::open(engine, password)?);
+        }
+        pdfium_doc
+            .as_ref()
+            .unwrap()
+            .render(number as i32, dpi, rotation as i32, region)?
+    } else {
+        page.render(dpi, rotation as i32, region)?
+    };
     if op == "region" && (image.width > 2048 || image.height > 2048) {
         return Err("Región demasiado grande.".into());
     }
-    let words = if op == "render" && doc.can_copy() {
+    let words = if op == "render" && v["text"] != false && doc.can_copy() {
         page.words(ocr, lang)?
     } else {
         vec![]
@@ -182,13 +208,15 @@ fn main() {
             std::process::exit(10);
         }
     }
+    let engine = native::load_pdfium();
+    let mut pdfium_doc = None;
     let stdin = std::io::stdin();
     let mut input = std::io::BufReader::new(stdin.lock());
     let mut doc_slot: Option<Document> = None;
     let mut current_pass = String::new();
     loop {
         let mut line = Vec::new();
-        let n = match input.read_until(b'\n', &mut line) {
+        let n = match input.by_ref().take(16385).read_until(b'\n', &mut line) {
             Ok(n) => n,
             Err(_) => break,
         };
@@ -200,14 +228,23 @@ fn main() {
             if write_frame(&meta, &pixels).is_err() {
                 std::process::exit(7);
             }
-            continue;
+            break;
         }
         let req: Value =
             match serde_json::from_slice::<Value>(&line[..line.len().saturating_sub(1)]) {
                 Ok(v) if v.is_object() => v,
                 _ => continue,
             };
-        let result = run(&mut doc_slot, &mut current_pass, &req);
+        let result = match &engine {
+            Ok(engine) => run(
+                engine.as_ref(),
+                &mut pdfium_doc,
+                &mut doc_slot,
+                &mut current_pass,
+                &req,
+            ),
+            Err(error) => Err(error.clone()),
+        };
         let (meta, pixels) = match result {
             Ok(r) => r,
             Err(e) if e == "locked" => (json!({"locked":true}), vec![]),

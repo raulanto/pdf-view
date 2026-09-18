@@ -30,7 +30,7 @@ La aplicación es de **solo lectura**: no modifica el PDF. No amplíes el alcanc
 | `qml/Theme.qml` | Cliente del servicio de temas |
 | `rust/pdf/src/main.rs` | `pdf-view-backend`: apertura, descriptores, Bubblewrap, cancelación, caché y validación de respuestas |
 | `rust/pdf/src/worker.rs` | `pdf-worker`: ejecución de operaciones PDF/OCR y límites de recursos |
-| `rust/pdf/src/native.rs` | Frontera FFI con Poppler GLib, Cairo y Tesseract y gestión de sus recursos |
+| `rust/pdf/src/native.rs` | Frontera FFI con PDFium, Poppler GLib, Cairo y Tesseract y gestión de sus recursos |
 | `rust/pdf/src/lib.rs` | Tipos, geometría, utilidades y protocolo del worker |
 | `rust/pdf/src/probe.rs` | Sonda de aislamiento para pruebas; no se instala con la aplicación |
 | `rust/theme/` | `pdf-view-theme`: lectura TOML, vigilancia de archivos y publicación de paletas |
@@ -44,7 +44,7 @@ La aplicación es de **solo lectura**: no modifica el PDF. No amplíes el alcanc
 
 Hay dos paquetes Cargo independientes, `rust/pdf` y `rust/theme`, cada uno con su `Cargo.lock`; no presupongas un workspace Cargo en la raíz. CMake usa `LANGUAGES NONE`: no debe volver a compilar código C++ propio.
 
-La migración a Rust no elimina las bibliotecas externas C/C++: Quickshell/Qt, Poppler, Cairo y Tesseract siguen siendo dependencias del sistema. No añadas un puente Qt/C++, bindings `poppler-qt6`, GTK, Electron, Tauri ni un frontend web para sustituir esta arquitectura.
+La migración a Rust no elimina las bibliotecas externas C/C++: Quickshell/Qt, PDFium, Poppler, Cairo y Tesseract siguen siendo dependencias del sistema. No añadas un puente Qt/C++, bindings `poppler-qt6`, GTK, Electron, Tauri ni un frontend web para sustituir esta arquitectura.
 
 ## Contratos de procesos e IPC
 
@@ -52,8 +52,8 @@ Toda comunicación entre procesos propios usa JSON por líneas sobre stdin/stdou
 
 - **QML → backend:** solicitudes con `id`, `kind`, `op` y parámetros. Los canales actuales son `0` renderizado, `1` búsqueda y `2` operaciones auxiliares.
 - **Backend → QML:** respuestas con `id`, `kind` y `data`. La interfaz solo aplica la respuesta correspondiente a la solicitud vigente. Preserva esta regla al cambiar de documento, página o consulta.
-- **Backend → worker:** una operación por proceso, con parámetros enviados por stdin. El documento se entrega mediante un descriptor abierto y montado por Bubblewrap.
-- **Worker → backend:** una línea JSON con `meta` y `pixels`; los píxeles son RGBA crudos codificados en base64. El backend valida metadatos, dimensiones y longitud antes de codificar el PNG que recibe QML.
+- **Backend → worker:** operaciones secuenciales por worker persistente, con parámetros enviados por stdin. El documento se entrega mediante un descriptor abierto y montado por Bubblewrap.
+- **Worker → backend:** una línea JSON con `meta` y `pixels`; los píxeles son RGB crudos codificados en base64. El backend valida metadatos, dimensiones y longitud antes de codificar el PNG que recibe QML.
 - **Servicio de temas → QML:** eventos con `palette` y `status`. Son actualizaciones espontáneas, no respuestas correlacionadas con solicitudes del visor.
 
 Reserva stdout para el protocolo; los diagnósticos van a stderr. No registres contraseñas ni texto extraído del documento. Cambia productores, consumidores y pruebas juntos si modificas un contrato. No añadas formatos alternativos ni compatibilidad especulativa.
