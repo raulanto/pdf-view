@@ -1,0 +1,181 @@
+"""Exercise the real Rust broker + sandbox, with dependency-free PDF fixtures."""
+import base64
+import ctypes as C
+import json
+import os
+from pathlib import Path
+import select
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+import zlib
+
+
+def write_pdf(path, scan=False):
+    objects = [b'<< /Type /Catalog /Pages 2 0 R /Outlines 8 0 R >>',
+               b'<< /Type /Pages /Kids [3 0 R 5 0 R] /Count 2 >>',
+               b'<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 7 0 R >> /XObject << /Im1 10 0 R >> >> /Contents 4 0 R >>',
+               b'', b'<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 7 0 R >> >> /Contents 6 0 R >>', b'',
+               b'<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+               b'<< /Type /Outlines /First 9 0 R /Last 9 0 R /Count 1 >>',
+               b'<< /Title (Chapter Two) /Parent 8 0 R /Dest [5 0 R /Fit] >>']
+    def stream(data, extra=b''):
+        return b'<< /Length '+str(len(data)).encode()+b' '+extra+b' >>\nstream\n'+data+b'\nendstream'
+    objects[3] = stream(b'q 450 0 0 100 60 620 cm /Im1 Do Q' if scan else b'BT /F1 24 Tf 60 700 Td (PDF View - Quickshell) Tj ET')
+    objects[5] = stream(b'BT /F1 24 Tf 60 700 Td (Second page) Tj ET')
+    pixels, width, height = scanned_pixels() if scan else (b'\xff\xff\xff', 1, 1)
+    objects.append(stream(zlib.compress(pixels), f'/Type /XObject /Subtype /Image /Width {width} /Height {height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /FlateDecode'.encode()))
+    data = b'%PDF-1.4\n'
+    offsets = [0]
+    for i, obj in enumerate(objects, 1):
+        offsets.append(len(data)); data += f'{i} 0 obj\n'.encode()+obj+b'\nendobj\n'
+    start = len(data)
+    data += f'xref\n0 {len(offsets)}\n0000000000 65535 f \n'.encode()
+    data += b''.join(f'{o:010d} 00000 n \n'.encode() for o in offsets[1:])
+    data += f'trailer\n<< /Size {len(offsets)} /Root 1 0 R >>\nstartxref\n{start}\n%%EOF\n'.encode()
+    path.write_bytes(data)
+
+
+def scanned_pixels():
+    cairo = C.CDLL('libcairo.so.2')
+    def function(name, result, *args):
+        f = getattr(cairo, name); f.restype=result; f.argtypes=args; return f
+    p, i, d = C.c_void_p, C.c_int, C.c_double
+    surface = function('cairo_image_surface_create', p, i, i, i)(0, 900, 200)
+    cr = function('cairo_create', p, p)(surface)
+    color = function('cairo_set_source_rgb', None, p, d, d, d)
+    color(cr, 1, 1, 1); function('cairo_paint', None, p)(cr); color(cr, 0, 0, 0)
+    function('cairo_select_font_face', None, p, C.c_char_p, i, i)(cr, b'sans', 0, 0)
+    function('cairo_set_font_size', None, p, d)(cr, 52)
+    function('cairo_move_to', None, p, d, d)(cr, 35, 110)
+    function('cairo_show_text', None, p, C.c_char_p)(cr, b'SCANNED DOCUMENT')
+    function('cairo_surface_flush', None, p)(surface)
+    data = function('cairo_image_surface_get_data', p, p)(surface)
+    stride = function('cairo_image_surface_get_stride', i, p)(surface)
+    raw = C.string_at(data, stride*200)
+    rgb = bytearray()
+    for y in range(200):
+        for x in range(900):
+            value = int.from_bytes(raw[y*stride+x*4:y*stride+x*4+4], sys.byteorder)
+            rgb.extend(((value>>16)&255, (value>>8)&255, value&255))
+    function('cairo_destroy', None, p)(cr); function('cairo_surface_destroy', None, p)(surface)
+    return bytes(rgb), 900, 200
+
+
+class Broker:
+    def __init__(self, worker=None, pass_fds=()):
+        env = dict(os.environ)
+        env.pop('PDF_VIEW_WORKER', None)
+        if worker: env['PDF_VIEW_WORKER'] = str(worker)
+        self.process = subprocess.Popen([sys.argv[1]], stdin=subprocess.PIPE, stdout=subprocess.PIPE, env=env, pass_fds=pass_fds)
+        self.serial = 0
+    def send(self, op, kind=0, **fields):
+        self.serial += 1
+        request = dict(op=op, kind=kind, id=self.serial, page=1, rotation=0, dpi=144)
+        request.update(fields)
+        self.process.stdin.write(json.dumps(request).encode()+b'\n'); self.process.stdin.flush()
+        return self.serial
+    def receive(self, identifier, timeout=50):
+        deadline = time.monotonic()+timeout
+        while time.monotonic()<deadline:
+            assert self.process.poll() is None, 'broker exited'
+            if select.select([self.process.stdout], [], [], 0.2)[0]:
+                result=json.loads(self.process.stdout.readline())
+                if result['id']==identifier: return result['data']
+        raise AssertionError('broker timeout')
+    def call(self, op, **fields): return self.receive(self.send(op, **fields))
+    def close(self):
+        self.process.stdin.close(); self.process.wait(timeout=5)
+        assert self.process.returncode==0
+
+
+def image(meta):
+    assert 'error' not in meta, meta
+    raw=base64.b64decode(meta['image'].split(',', 1)[1])
+    assert raw[:8]==b'\x89PNG\r\n\x1a\n'
+    assert int.from_bytes(raw[16:20], 'big')==meta['width']
+    assert int.from_bytes(raw[20:24], 'big')==meta['height']
+
+
+with tempfile.TemporaryDirectory() as directory:
+    root=Path(directory); pdf=root/'sample # á space.pdf'; write_pdf(pdf)
+    output=os.environ.get('PDF_VIEW_TEST_FIXTURE')
+    if output: shutil.copyfile(pdf, output)
+    broker=Broker()
+    try:
+        broker.process.stdin.write(b'[]\nnull\n'); broker.process.stdin.flush()
+        assert 'error' in broker.call('open', url='https://example.com/test.pdf')
+        fifo=root/'pipe.pdf'; os.mkfifo(fifo)
+        assert 'error' in broker.call('open',url=fifo.as_uri())
+        bad=root/'invalid.pdf'; bad.write_text('not a PDF')
+        assert 'error' in broker.call('open', url=bad.as_uri())
+        first=broker.call('open', url=pdf.as_uri()); image(first)
+        assert first['pages']==2 and first['canCopy']
+        assert first['outline']==[dict(title='Chapter Two', page=2, depth=0)]
+        assert 'Quickshell' in ' '.join(w['text'] for w in first['words'])
+        word=next(w for w in first['words'] if w['text']=='Quickshell')
+        for rotation in range(4):
+            page=broker.call('render', page=2, rotation=rotation, dpi=500); image(page)
+            assert page['rotation']==rotation
+            assert (page['width']>page['height'])==(rotation%2==1)
+        matches=broker.call('search',kind=1,query='quickshell')['matches']
+        assert len(matches)==1 and matches[0]['page']==1
+        # Search highlights and text selection must share top-left coordinates.
+        a,b=matches[0]['rect'],word['rect']
+        assert abs(a[1]-b[1])<10, (a,b)
+        thumbnail=broker.call('thumbnail',kind=2,page=2,dpi=72); image(thumbnail)
+        assert max(thumbnail['width'],thumbnail['height'])<=220
+        region=broker.call('region',kind=2,dpi=288,rotation=1,region=[0.1,0.1,0.2,0.2]); image(region)
+        text=broker.call('extract',kind=2,first=1,last=2)['text']
+        assert 'Quickshell' in text and 'Second page' in text
+        assert broker.call('extract',kind=2,first=1,last=1,firstWord=3,lastWord=3)['text']=='Quickshell'
+        assert 'error' in broker.call('extract',kind=2,first=1,last=102)
+        assert 'error' in broker.call('render',language='../eng')
+        # Repeated renders return the same validated response.
+        cached=broker.call('render',page=1)
+        assert broker.call('render',page=1)==cached
+        # A pathname replacement cannot switch the already-open document.
+        old=root/'original.pdf'; pdf.rename(old); pdf.write_text('replacement')
+        assert broker.call('render',page=2)['pages']==2
+        broker.send('search',kind=1,query='missing')
+        broker.send('cancel',kind=1)
+        assert broker.call('open',url=old.as_uri())['pages']==2
+        scan=root/'scan.pdf'; write_pdf(scan,True)
+        assert broker.call('open',url=scan.as_uri())['words']==[]
+        scanned=broker.call('render',ocr=True,language='eng'); image(scanned)
+        assert 'SCANNED' in ' '.join(w['text'] for w in scanned['words'])
+        assert len(broker.call('search',kind=1,query='scanned document',ocr=True)['matches'])==1
+        assert 'SCANNED' in broker.call('extract',kind=2,first=1,last=1,ocr=True)['text']
+        assert 'error' in broker.call('render',ocr=True,language='missingmodel')
+        if shutil.which('qpdf'):
+            encrypted=root/'protected.pdf'
+            subprocess.run(['qpdf','--encrypt','secret','owner','256','--',str(old),str(encrypted)],check=True)
+            assert broker.call('open',url=encrypted.as_uri())['locked']
+            assert broker.call('unlock',password='wrong')['locked']
+            image(broker.call('unlock',password='secret'))
+            assert broker.call('unlock',password='wrong')['locked']
+            restricted=root/'restricted.pdf'
+            subprocess.run(['qpdf','--encrypt','secret','owner','256','--extract=n','--',str(old),str(restricted)],check=True)
+            assert broker.call('open',url=restricted.as_uri())['locked']
+            denied=broker.call('unlock',password='secret'); assert not denied['canCopy'] and denied['words']==[]
+            assert 'error' in broker.call('extract',kind=2,first=1,last=1)
+        else: print('SKIP: qpdf password/copy permission checks')
+    finally: broker.close()
+    worker=root/'worker'
+    shutil.copyfile(Path(sys.argv[1]).with_name('pdf-worker'),worker);worker.chmod(0o700)
+    cached_broker=Broker(worker)
+    try:
+        image(cached_broker.call('open',url=old.as_uri()))
+        cached=cached_broker.call('render',page=1)
+        worker.rename(root/'disabled-worker')
+        assert cached_broker.call('render',page=1)==cached
+        assert 'error' in cached_broker.call('render',page=2)
+    finally: cached_broker.close()
+    private=root/'private-descriptor';private.write_text('must not reach the worker')
+    with private.open('rb') as secret:
+        probe=Broker(Path(sys.argv[1]).with_name('sandbox-probe'),pass_fds=(secret.fileno(),))
+        try: assert probe.call('open',url=old.as_uri())['error']=='sandbox verified'
+        finally: probe.close()
+print('Rust integration passed: rendering, rotation, search geometry, outline, OCR, ranges, passwords, copy permissions, cancellation, descriptor isolation and sandbox')

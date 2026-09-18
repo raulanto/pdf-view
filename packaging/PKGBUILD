@@ -1,13 +1,13 @@
 # Local source package: first run scripts/source-package.sh from the project.
 pkgname=pdf-view
-pkgver=0.4.0
+pkgver=0.5.0
 pkgrel=1
 pkgdesc='Visor PDF Quickshell con integración Omarchy y OCR local'
 arch=('x86_64')
 options=('!debug')
 # Project licensing must be chosen by its author before public distribution.
 license=('custom:unlicensed')
-depends=('quickshell' 'qt6-base' 'qt6-declarative' 'poppler-qt6' 'bubblewrap' 'tesseract' 'tesseract-data-eng' 'python' 'bash')
+depends=('quickshell' 'qt6-base' 'qt6-declarative' 'poppler-glib' 'cairo' 'bubblewrap' 'tesseract' 'tesseract-data-eng' 'python' 'bash')
 optdepends=('tesseract-data-spa: reconocimiento OCR en español')
 makedepends=('cmake' 'ninja' 'gcc' 'pkgconf' 'rust')
 source=("$pkgname-$pkgver.tar.gz")
@@ -16,6 +16,7 @@ sha256sums=('SOURCE_SHA256')
 prepare() {
     cd "$srcdir/$pkgname-$pkgver"
     cargo fetch --locked --manifest-path rust/theme/Cargo.toml
+    cargo fetch --locked --manifest-path rust/pdf/Cargo.toml
 }
 build() {
     cmake -S "$srcdir/$pkgname-$pkgver" -B build -G Ninja \

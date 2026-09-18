@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 if [[ $# -gt 1 ]]; then echo 'Uso: pdf-view [documento.pdf]' >&2; exit 2; fi
-export QML_IMPORT_PATH="@CMAKE_INSTALL_FULL_LIBDIR@/pdf-view/qml${QML_IMPORT_PATH:+:$QML_IMPORT_PATH}"
+export PDF_VIEW_BACKEND="@CMAKE_INSTALL_FULL_LIBEXECDIR@/pdf-view/pdf-view-backend"
 export PDF_VIEW_WORKER="@CMAKE_INSTALL_FULL_LIBEXECDIR@/pdf-view/pdf-worker"
 export PDF_VIEW_THEME_HELPER="@CMAKE_INSTALL_FULL_LIBEXECDIR@/pdf-view/pdf-view-theme"
 export QT_QUICK_CONTROLS_STYLE=Basic

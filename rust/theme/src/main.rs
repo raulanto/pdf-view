@@ -165,17 +165,12 @@ fn main() -> io::Result<()> {
                 }
             }
         };
-        let message = json!({"palette":palette,"status":status,
-            "source":source.map(|p|p.to_string_lossy().into_owned()).unwrap_or_default()})
-        .to_string();
+        let message = json!({"palette":palette,"status":status}).to_string();
         if message != last {
             let mut stdout = io::stdout().lock();
             writeln!(stdout, "{message}")?;
             stdout.flush()?;
             last = message;
-        }
-        if env::args().any(|a| a == "--once") {
-            break;
         }
         // A bounded fallback also recovers from inotify overflow or unsupported filesystems.
         if rx.recv_timeout(Duration::from_secs(2)).is_ok() {
@@ -183,7 +178,6 @@ fn main() -> io::Result<()> {
             while rx.try_recv().is_ok() {}
         }
     }
-    Ok(())
 }
 #[cfg(test)]
 mod tests {

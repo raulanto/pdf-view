@@ -1,52 +1,35 @@
 cmake_minimum_required(VERSION 3.24)
-project(pdf_view VERSION 0.4.0 LANGUAGES CXX)
-set(CMAKE_CXX_STANDARD 20)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_AUTOMOC ON)
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Quick Qml Test)
-qt_policy(SET QTP0001 NEW)
-find_package(PkgConfig REQUIRED)
-pkg_check_modules(POPPLER REQUIRED IMPORTED_TARGET poppler-qt6)
-pkg_check_modules(TESSERACT REQUIRED IMPORTED_TARGET tesseract)
-qt_add_library(pdfbridge SHARED)
-qt_add_qml_module(pdfbridge URI PdfView VERSION 1.0
-    OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/qml/PdfView
-    SOURCES src/pdfpage.h src/pdfpage.cpp src/sandbox.h)
-target_include_directories(pdfbridge PRIVATE src)
-target_link_libraries(pdfbridge PRIVATE Qt6::Quick)
-add_executable(pdf-worker src/worker.cpp)
-target_link_libraries(pdf-worker PRIVATE Qt6::Gui PkgConfig::POPPLER PkgConfig::TESSERACT)
+project(pdf_view VERSION 0.5.0 LANGUAGES NONE)
 find_program(CARGO_EXECUTABLE cargo REQUIRED)
-add_custom_target(theme-service ALL
-    COMMAND ${CARGO_EXECUTABLE} build --locked --offline --release
-        --manifest-path ${CMAKE_SOURCE_DIR}/rust/theme/Cargo.toml
-        --target-dir ${CMAKE_BINARY_DIR}/rust
-    BYPRODUCTS ${CMAKE_BINARY_DIR}/rust/release/pdf-view-theme
-    COMMENT "Building Rust theme service")
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(POPPLER REQUIRED poppler-glib)
+pkg_check_modules(TESSERACT REQUIRED tesseract)
+pkg_check_modules(CAIRO REQUIRED cairo)
+foreach(service IN ITEMS theme pdf)
+    add_custom_target(${service}-service ALL
+        COMMAND ${CARGO_EXECUTABLE} build --locked --offline --release
+            --manifest-path ${CMAKE_SOURCE_DIR}/rust/${service}/Cargo.toml
+            --target-dir ${CMAKE_BINARY_DIR}/rust
+        COMMENT "Building Rust ${service} service")
+endforeach()
 include(CTest)
 if(BUILD_TESTING)
-    add_test(NAME theme-unit COMMAND ${CARGO_EXECUTABLE} test --locked --offline
-        --manifest-path ${CMAKE_SOURCE_DIR}/rust/theme/Cargo.toml --target-dir ${CMAKE_BINARY_DIR}/rust)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    foreach(service IN ITEMS theme pdf)
+        add_test(NAME ${service}-unit COMMAND ${CARGO_EXECUTABLE} test --locked --offline
+            --manifest-path ${CMAKE_SOURCE_DIR}/rust/${service}/Cargo.toml --target-dir ${CMAKE_BINARY_DIR}/rust)
+    endforeach()
     add_test(NAME theme-reload COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/theme_reload.py ${CMAKE_BINARY_DIR}/rust/release/pdf-view-theme)
-    add_executable(sandbox-probe tests/probe.cpp)
-    add_executable(pdf-tests tests/test.cpp src/pdfpage.cpp src/pdfpage.h src/sandbox.h)
-    target_include_directories(pdf-tests PRIVATE src)
-    target_link_libraries(pdf-tests PRIVATE Qt6::Quick Qt6::Test)
-    add_test(NAME integration COMMAND pdf-tests)
-    set_tests_properties(integration PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QPA_PLATFORMTHEME=;QT_QUICK_CONTROLS_STYLE=Basic;PDF_VIEW_WORKER=${CMAKE_BINARY_DIR}/pdf-worker;PDF_VIEW_PROBE=${CMAKE_BINARY_DIR}/sandbox-probe")
+    add_test(NAME integration COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/backend.py ${CMAKE_BINARY_DIR}/rust/release/pdf-view-backend)
 endif()
-
+set(CMAKE_INSTALL_LIBDIR lib CACHE PATH "Library directory")
 include(GNUInstallDirs)
-set_target_properties(pdfbridge pdfbridgeplugin PROPERTIES INSTALL_RPATH "$ORIGIN")
 configure_file(packaging/pdf-view.in ${CMAKE_BINARY_DIR}/pdf-view @ONLY)
 install(PROGRAMS ${CMAKE_BINARY_DIR}/pdf-view DESTINATION ${CMAKE_INSTALL_BINDIR})
-install(TARGETS pdf-worker RUNTIME DESTINATION ${CMAKE_INSTALL_LIBEXECDIR}/pdf-view)
-install(PROGRAMS ${CMAKE_BINARY_DIR}/rust/release/pdf-view-theme DESTINATION ${CMAKE_INSTALL_LIBEXECDIR}/pdf-view)
-install(TARGETS pdfbridge pdfbridgeplugin LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}/pdf-view/qml/PdfView)
-install(FILES ${CMAKE_BINARY_DIR}/qml/PdfView/qmldir ${CMAKE_BINARY_DIR}/qml/PdfView/pdfbridge.qmltypes DESTINATION ${CMAKE_INSTALL_LIBDIR}/pdf-view/qml/PdfView)
+install(PROGRAMS ${CMAKE_BINARY_DIR}/rust/release/pdf-worker ${CMAKE_BINARY_DIR}/rust/release/pdf-view-backend ${CMAKE_BINARY_DIR}/rust/release/pdf-view-theme DESTINATION ${CMAKE_INSTALL_LIBEXECDIR}/pdf-view)
 install(FILES shell.qml DESTINATION ${CMAKE_INSTALL_DATADIR}/pdf-view)
 install(DIRECTORY qml/ DESTINATION ${CMAKE_INSTALL_DATADIR}/pdf-view/qml FILES_MATCHING PATTERN "*.qml" PATTERN "qmldir")
 install(FILES packaging/pdf-view.desktop DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
 install(FILES packaging/pdf-view.svg DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps)
-install(FILES README.md DESTINATION ${CMAKE_INSTALL_DATADIR}/doc/pdf-view)
+install(FILES README.md AGENTS.md DESTINATION ${CMAKE_INSTALL_DATADIR}/doc/pdf-view)
+install(DIRECTORY docs/ DESTINATION ${CMAKE_INSTALL_DATADIR}/doc/pdf-view/docs FILES_MATCHING PATTERN "*.md")

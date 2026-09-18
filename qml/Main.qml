@@ -3,7 +3,6 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import Quickshell
-import PdfView 1.0
 
 FloatingWindow {
     id: window
@@ -306,7 +305,7 @@ FloatingWindow {
                         Label { text: page.searching ? "…" : (page.matchCount ? (page.matchIndex+1)+"/"+page.matchCount+(page.searchTruncated?"+":"") : "0") }
                         Command { text: "↑"; enabled: page.matchCount > 0; onClicked: page.nextMatch(-1) }
                         Command { text: "↓"; enabled: page.matchCount > 0; onClicked: page.nextMatch(1) }
-                        Command { text: "[x]"; onClicked: { searchDelay.stop(); searchDelay.stop(); window.searchVisible = false; page.search(""); page.forceActiveFocus() } }
+                        Command { text: "[x]"; onClicked: { searchDelay.stop(); window.searchVisible = false; page.search(""); page.forceActiveFocus() } }
                     }
                     Label {
                         Layout.fillWidth: true; Layout.margins: 8
@@ -349,11 +348,6 @@ FloatingWindow {
                                 y: (viewport.contentHeight-height)/2
                                 renderScale: viewport.effectiveScale*window.devicePixelRatio
                                 highlightColor: theme.colors.accent
-                                PdfRegion {
-                                    sourcePage: page
-                                    x: page.regionRect.x; y: page.regionRect.y
-                                    width: page.regionRect.width; height: page.regionRect.height
-                                }
                             }
                             Timer {
                                 id: regionDelay
