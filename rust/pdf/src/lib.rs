@@ -102,6 +102,19 @@ pub fn write_frame(meta: &Value, pixels: &[u8]) -> io::Result<()> {
     out.write_all(b"\n")?;
     out.flush()
 }
+
+pub fn annotation_rgb(value: &str) -> Result<[u8; 3]> {
+    let bytes = value.as_bytes();
+    if bytes.len() != 7 || bytes[0] != b'#' || !bytes[1..].iter().all(u8::is_ascii_hexdigit) {
+        return Err("Color inválido: usa #RRGGBB.".into());
+    }
+    Ok([
+        u8::from_str_radix(&value[1..3], 16).unwrap(),
+        u8::from_str_radix(&value[3..5], 16).unwrap(),
+        u8::from_str_radix(&value[5..7], 16).unwrap(),
+    ])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -117,5 +130,9 @@ mod tests {
         assert!(!Rect(f64::NAN, 0., 1., 1.).valid());
         assert!(!language_valid("../../eng"));
         assert!(language_valid("spa+eng"));
+        assert_eq!(annotation_rgb("#397ed0").unwrap(), [57, 126, 208]);
+        for invalid in ["red", "#12345", "#zzzzzz", "#12é45", "#12345678"] {
+            assert!(annotation_rgb(invalid).is_err());
+        }
     }
 }

@@ -91,6 +91,24 @@ ShellRoot {
                     return
                 }
 
+                if (root.stage===7 && doc.canAnnotate) {
+                    root.viewer.showNotes()
+                    root.viewer.annotationDialog.noteEditor.text="Nota persistente de prueba"
+                    root.viewer.annotationDialog.saveButton.clicked()
+                    root.stage=8; return
+                }
+                if (root.stage===8) {
+                    if (!doc.textReady) return
+                    if (!doc.annotations.some(a=>a.text==="Nota persistente de prueba")) { console.error("Note persistence failed: "+doc.auxiliaryError); Qt.quit(); return }
+                    root.viewer.showNotes()
+                    root.stage=9; return
+                }
+            }
+            if (!root.themeTest && root.stage===9) {
+                root.viewer.annotationDialog.close()
+                root.viewer.document.selectAll()
+                root.viewer.showSelectionTools()
+                root.stage=10; return
             }
             if (root.themeTest && root.stage === 0) {
                 if (root.viewer.theme.colors.background !== "#1a1b26") return
@@ -109,7 +127,7 @@ ShellRoot {
             }
             if (root.themeTest && root.stage !== 2) return
             stop()
-            const item = root.themeTest ? root.viewer.filePicker.contentItem : root.viewer.captureItem
+            const item = root.themeTest ? root.viewer.filePicker.contentItem : (root.stage===10 ? root.viewer.selectionActions.background.parent : root.viewer.captureItem)
             item.grabToImage(function(result) {
                 if (!result.saveToFile(Quickshell.env("PDF_VIEW_SCREENSHOT"))) {
                     Qt.quit()

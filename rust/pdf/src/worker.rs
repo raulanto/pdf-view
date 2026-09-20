@@ -5,12 +5,30 @@ use serde_json::{json, Value};
 use std::io::{BufRead, Read};
 fn run<'a>(
     pdfium: Option<&'a native::Pdfium>,
+    exported: &mut Vec<u8>,
     pdfium_doc: &mut Option<native::PdfiumDocument<'a>>,
     doc_slot: &mut Option<Document>,
     current_pass: &mut String,
     v: &Value,
 ) -> Result<(Value, Vec<u8>)> {
     let op = v["op"].as_str().unwrap_or("");
+    if op == "export_chunk" {
+        let offset = integer(v, "offset", -1);
+        if offset < 0 || offset as usize >= exported.len() {
+            return Err("Fragmento inválido.".into());
+        }
+        let end = (offset as usize + 1024 * 1024).min(exported.len());
+        use base64::Engine;
+        let chunk =
+            base64::engine::general_purpose::STANDARD.encode(&exported[offset as usize..end]);
+        return Ok((json!({"offset":offset,"chunk":chunk}), vec![]));
+    }
+    if op == "export" {
+        exported.clear();
+        *exported =
+            native::export_annotation(pdfium.ok_or("Las anotaciones requieren PDFium.")?, v)?;
+        return Ok((json!({"bytes":exported.len()}), vec![]));
+    }
     let ocr = v["ocr"].as_bool().unwrap_or(false);
     let lang = v["language"].as_str().unwrap_or("eng");
     if !language_valid(lang) {
@@ -138,6 +156,16 @@ fn run<'a>(
         };
         let mut meta = json!({"pages":doc.pages(),"page":number,"rotation":rotation,
             "pageWidth":w,"pageHeight":h,"canCopy":doc.can_copy(),"words":words});
+        meta["canAnnotate"] = json!(false);
+        meta["annotations"] = json!([]);
+        if let Some(engine) = pdfium {
+            if pdfium_doc.is_none() {
+                *pdfium_doc = Some(native::PdfiumDocument::open(engine, password)?);
+            }
+            let pd = pdfium_doc.as_ref().unwrap();
+            meta["canAnnotate"] = json!(pd.can_annotate());
+            meta["annotations"] = json!(page.annotations()?);
+        }
         if v["outline"] == true {
             meta["outline"] = json!(doc.outline());
         }
@@ -210,6 +238,7 @@ fn main() {
     }
     let engine = native::load_pdfium();
     let mut pdfium_doc = None;
+    let mut exported = Vec::new();
     let stdin = std::io::stdin();
     let mut input = std::io::BufReader::new(stdin.lock());
     let mut doc_slot: Option<Document> = None;
@@ -238,6 +267,7 @@ fn main() {
         let result = match &engine {
             Ok(engine) => run(
                 engine.as_ref(),
+                &mut exported,
                 &mut pdfium_doc,
                 &mut doc_slot,
                 &mut current_pass,

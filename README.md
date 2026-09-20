@@ -2,7 +2,7 @@
 
 Visor PDF local para Arch Linux / Omarchy, con interfaz Quickshell estilo terminal y servicios Rust. Incluye navegación multipágina, zoom, rotación, búsqueda, selección y copia, miniaturas, índice, OCR local y colores de Omarchy con recarga en vivo.
 
-La aplicación abre documentos en solo lectura. PDFium renderiza las páginas; Poppler GLib, Cairo y Tesseract conservan texto, búsqueda y OCR. Estos motores trabajan dentro de Bubblewrap; no hay código C++ propio ni un frontend web.
+La aplicación permite leer PDFs y guardar notas y subrayados dentro del archivo abierto. PDFium renderiza las páginas; Poppler GLib, Cairo y Tesseract conservan texto, búsqueda y OCR. Estos motores trabajan dentro de Bubblewrap; no hay código C++ propio ni un frontend web.
 
 ## Empezar
 
@@ -16,6 +16,8 @@ Consulta [Desarrollo](docs/desarrollo.md) para instalar las dependencias y compi
 `run.sh` carga el QML del proyecto y los binarios de `build/rust/release`; no recompila Rust automáticamente.
 
 PDFium se incluye en el paquete Arch. En desarrollo, `./scripts/fetch-pdfium.sh` prepara la biblioteca verificada y `./scripts/run.sh` la selecciona automáticamente. La imagen inicial aparece antes de extraer texto u OCR; consulta [Rendimiento y motores](docs/rendimiento.md).
+
+Para anotar: selecciona palabras con clic izquierdo, elige un color en la cinta rápida y pulsa **subrayar**, o abre **notas** y pulsa **guardar nota**. Cada acción se guarda sobre el PDF abierto; las notas se consultan al reabrirlo desde **notas**. Consulta [Uso](docs/uso.md).
 
 ## Documentación
 

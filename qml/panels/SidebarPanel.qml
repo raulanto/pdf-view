@@ -30,7 +30,7 @@ Rectangle {
             color: root.theme.colors.selection
             ThemedLabel { theme: root.theme; anchors.fill: parent; anchors.leftMargin: 7; verticalAlignment: Text.AlignVCenter; text: "› " + root.window.documentName }
         }
-        ThemedLabel { theme: root.theme; text: "PDF / solo lectura"; opacity: 0.65 }
+        ThemedLabel { theme: root.theme; text: "PDF / lectura y notas"; opacity: 0.65 }
         ThemedLabel { theme: root.theme; text: root.page.pageCount > 0 ? root.page.pageCount + (root.page.pageCount === 1 ? " página" : " páginas") : "—"; opacity: 0.65 }
         RowLayout {
             Layout.fillWidth: true

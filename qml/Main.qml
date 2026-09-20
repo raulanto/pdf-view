@@ -9,6 +9,8 @@ import "panels"
 
 FloatingWindow {
     id: window
+    readonly property alias selectionActions: selectionToolbar
+    readonly property alias annotationDialog: notesDialog
     readonly property alias filePicker: picker
     readonly property alias theme: theme
     readonly property alias document: page
@@ -20,10 +22,10 @@ FloatingWindow {
     property bool searchVisible: false
     property bool focusMode: false
     property string sidebarMode: "pages"
-    readonly property bool commandsEnabled: !picker.visible && !passwordDialog.visible && !rangeDialog.visible && !sidebarPanel.ocrLanguageField.activeFocus && !searchBar.searchField.activeFocus && !toolbarPanel.pageInputField.activeFocus
+    readonly property bool commandsEnabled: !picker.visible && !passwordDialog.visible && !rangeDialog.visible && !notesDialog.visible && !page.saving && !sidebarPanel.ocrLanguageField.activeFocus && !searchBar.searchField.activeFocus && !toolbarPanel.pageInputField.activeFocus
     readonly property string documentName: documentPath.split("/").pop() || "sin documento"
     Theme { id: theme }
-    onClosed: Qt.quit()
+    onClosed: { if (page.saving) visible=true; else Qt.quit() }
     title: documentPath ? documentName + " — pdf-view" : "pdf-view"
     visible: true
     implicitWidth: 1120
@@ -32,6 +34,8 @@ FloatingWindow {
     color: theme.colors.background
 
     function openDocument(file) {
+        selectionToolbar.close()
+        if (page.saving) { openingError="Espera a que termine el guardado."; return }
         wheelScroll.stop()
         openingError = ""
         searchVisible = false
@@ -43,6 +47,24 @@ FloatingWindow {
         page.open(file)
     }
 
+    function showNotes() { selectionToolbar.close(); notesDialog.open() }
+    function showSelectionTools() {
+        if (page.anchor<0 || page.cursor<0 || page.saving) return
+        const rect=page.mapRect(page.words[page.cursor].rect)
+        selectionToolbar.showAt(page.mapToItem(canvas,rect.x+rect.width/2,rect.y+(page.currentPage-1)*(page.singleHeight+16)))
+    }
+    SelectionToolbar {
+        id: selectionToolbar; parent: canvas
+        theme: window.theme; selectedColor: page.annotationColor
+        canAnnotate: page.canAnnotate && !page.saving
+        onColorChosen: value => page.annotationColor=value
+        onUnderlineRequested: if (page.saveAnnotation("underline","")) close()
+        onNoteRequested: window.showNotes()
+        onCopyRequested: { page.copySelection(); close() }
+    }
+    Shortcut { sequence: "Ctrl+Shift+A"; enabled: window.commandsEnabled && page.anchor>=0; onActivated: window.showSelectionTools() }
+
+    NotesDialog { id: notesDialog; theme: window.theme; page: page; canvasItem: canvas }
     PasswordDialog {
         id: passwordDialog
         theme: window.theme
@@ -59,7 +81,11 @@ FloatingWindow {
 
     Connections {
         target: page
+        function onSelectionFinished(position) {
+            if (!notesDialog.visible && !page.saving) selectionToolbar.showAt(page.mapToItem(canvas,position.x,position.y))
+        }
         function onChanged() {
+            if (!page.selectedText.length || page.saving) selectionToolbar.close()
             if (!page.busy) regionDelay.restart()
             if (page.passwordRequired && !page.busy && !passwordDialog.visible) passwordDialog.open()
         }
@@ -70,6 +96,7 @@ FloatingWindow {
     }
 
     function changePage(number) {
+        if (page.saving) return
         wheelScroll.stop()
         if (number < 1 || (page.pageCount > 0 && number > page.pageCount)) return
         viewport.contentX = 0
@@ -80,8 +107,8 @@ FloatingWindow {
 
     function showSearch() { searchVisible = true; searchBar.searchField.forceActiveFocus(); searchBar.searchField.selectAll() }
 
-    Shortcut { sequence: "Ctrl+F"; enabled: !picker.visible && !passwordDialog.visible; onActivated: window.showSearch() }
-    Shortcut { sequence: "Ctrl+E"; enabled: !picker.visible && !passwordDialog.visible; onActivated: window.focusMode = !window.focusMode }
+    Shortcut { sequence: "Ctrl+F"; enabled: !notesDialog.visible && !page.saving && !picker.visible && !passwordDialog.visible; onActivated: window.showSearch() }
+    Shortcut { sequence: "Ctrl+E"; enabled: !notesDialog.visible && !page.saving && !picker.visible && !passwordDialog.visible; onActivated: window.focusMode = !window.focusMode }
     Shortcut { sequence: "PgDown"; enabled: window.commandsEnabled; onActivated: window.changePage(page.currentPage + 1) }
     Shortcut { sequence: "PgUp"; enabled: window.commandsEnabled; onActivated: window.changePage(page.currentPage - 1) }
     Shortcut { sequence: "Ctrl+Home"; enabled: window.commandsEnabled; onActivated: window.changePage(1) }
@@ -92,9 +119,9 @@ FloatingWindow {
     Shortcut { sequence: "Ctrl+R"; enabled: window.commandsEnabled; onActivated: page.rotatePage(1) }
     Shortcut { sequence: "Ctrl+C"; enabled: window.commandsEnabled; onActivated: page.copySelection() }
     Shortcut { sequence: "Ctrl+A"; enabled: window.commandsEnabled; onActivated: page.selectAll() }
-    Shortcut { sequence: "F3"; enabled: !picker.visible && !passwordDialog.visible; onActivated: page.nextMatch(1) }
-    Shortcut { sequence: "Shift+F3"; enabled: !picker.visible && !passwordDialog.visible; onActivated: page.nextMatch(-1) }
-    Shortcut { sequence: "Escape"; enabled: (window.searchVisible || window.focusMode) && !picker.visible && !passwordDialog.visible; onActivated: { if (window.focusMode) { window.focusMode = false } else { searchBar.searchTimer.stop(); window.searchVisible = false; page.search(""); page.forceActiveFocus() } } }
+    Shortcut { sequence: "F3"; enabled: !notesDialog.visible && !page.saving && !picker.visible && !passwordDialog.visible; onActivated: page.nextMatch(1) }
+    Shortcut { sequence: "Shift+F3"; enabled: !notesDialog.visible && !page.saving && !picker.visible && !passwordDialog.visible; onActivated: page.nextMatch(-1) }
+    Shortcut { sequence: "Escape"; enabled: !selectionToolbar.opened && !notesDialog.visible && !page.saving && (window.searchVisible || window.focusMode) && !picker.visible && !passwordDialog.visible; onActivated: { if (window.focusMode) { window.focusMode = false } else { searchBar.searchTimer.stop(); window.searchVisible = false; page.search(""); page.forceActiveFocus() } } }
 
     FilePicker {
         id: picker
@@ -102,7 +129,7 @@ FloatingWindow {
         colors: theme.colors
         onSelected: file => window.openDocument(file)
     }
-    Shortcut { sequence: "Ctrl+O"; onActivated: picker.open() }
+    Shortcut { sequence: "Ctrl+O"; enabled: !notesDialog.visible && !page.saving; onActivated: picker.open() }
 
     Rectangle {
         id: canvas
@@ -200,11 +227,12 @@ FloatingWindow {
                             }
                             NumberAnimation { id: wheelScroll; target: viewport; property: "contentY"; duration: 140; easing.type: Easing.OutCubic }
                             onDraggingChanged: if (dragging) wheelScroll.stop()
-                            function adjustZoom(factor) { zoom = Math.max(0.25, Math.min(4, effectiveScale*factor)); fitMode = "manual" }
+                            function adjustZoom(factor) { selectionToolbar.close(); zoom = Math.max(0.25, Math.min(4, effectiveScale*factor)); fitMode = "manual" }
                             contentWidth: Math.max(width, singleWidth)
                             contentHeight: Math.max(height, totalDocHeight)
-                            onContentXChanged: regionDelay.restart()
+                            onContentXChanged: { selectionToolbar.close(); regionDelay.restart() }
                             onContentYChanged: {
+                                selectionToolbar.close()
                                 regionDelay.restart()
                                 if (page.pageCount > 1) {
                                     const pageIndex = Math.max(1, Math.min(page.pageCount, Math.floor((contentY + height/3) / (singleHeight + 4)) + 1))

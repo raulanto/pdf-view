@@ -62,6 +62,23 @@ pub fn validate(mut meta: Value, pixels: Vec<u8>, request: &Value) -> Result<Val
         return Ok(meta);
     }
     let op = request["op"].as_str().unwrap_or("");
+    if op == "export" {
+        if !pixels.is_empty() || !(8..=256 * 1024 * 1024).contains(&integer(&meta, "bytes", 0)) {
+            return Err("Exportación inválida.".into());
+        }
+        return Ok(meta);
+    }
+    if op == "export_chunk" {
+        if !pixels.is_empty()
+            || meta["offset"] != request["offset"]
+            || meta["chunk"]
+                .as_str()
+                .is_none_or(|s| s.is_empty() || s.len() > 1024 * 1024 * 4 / 3 + 4)
+        {
+            return Err("Fragmento inválido.".into());
+        }
+        return Ok(meta);
+    }
     if op == "extract" {
         if !pixels.is_empty()
             || meta["text"]
@@ -137,6 +154,26 @@ pub fn validate(mut meta: Value, pixels: Vec<u8>, request: &Value) -> Result<Val
         }
     }
     if text_only {
+        let notes = meta["annotations"]
+            .as_array()
+            .ok_or("Anotaciones inválidas.")?;
+        if notes.len() > 256 || !meta["canAnnotate"].is_boolean() {
+            return Err("Anotaciones inválidas.".into());
+        }
+        for note in notes {
+            pdf_view_backend::annotation_rgb(note["color"].as_str().unwrap_or(""))?;
+            let r: Rect =
+                serde_json::from_value(note["rect"].clone()).map_err(|_| "Anotación inválida.")?;
+            if !r.valid()
+                || note["text"]
+                    .as_str()
+                    .is_none_or(|s| s.chars().count() > 4000)
+                || !["note", "underline", "highlight"]
+                    .contains(&note["kind"].as_str().unwrap_or(""))
+            {
+                return Err("Anotación inválida.".into());
+            }
+        }
         return Ok(meta);
     }
     // Encode only validated raw pixels here: the UI never decodes an image supplied by the PDF parser.
@@ -171,6 +208,12 @@ pub fn execute(
     } else {
         45
     };
+    let limit = Duration::from_millis(
+        request["timeoutMs"]
+            .as_u64()
+            .unwrap_or(limit * 1000)
+            .clamp(1, limit * 1000),
+    );
     let mut guard = worker_slot.lock().unwrap();
     let worker_proc = guard.as_mut().ok_or("Motor no disponible.")?;
     if worker_proc.stdin.write_all(&input).is_err() {
@@ -181,7 +224,7 @@ pub fn execute(
     }
     let start = Instant::now();
     let frame = loop {
-        if cancel_flag.load(Ordering::Relaxed) || start.elapsed() > Duration::from_secs(limit) {
+        if cancel_flag.load(Ordering::Relaxed) || start.elapsed() > limit {
             break Err("La operación excedió el tiempo permitido.".into());
         }
         match worker_proc.frames.recv_timeout(Duration::from_millis(20)) {
@@ -190,7 +233,7 @@ pub fn execute(
             Err(_) => break Err("El motor terminó sin responder.".into()),
         }
     };
-    if cancel_flag.load(Ordering::Relaxed) || start.elapsed() > Duration::from_secs(limit) {
+    if cancel_flag.load(Ordering::Relaxed) || start.elapsed() > limit {
         if let Some(mut wp) = guard.take() {
             wp.kill();
         }
@@ -221,6 +264,19 @@ mod tests {
     #[test]
     fn rejects_remote_and_invalid_worker_output() {
         assert!(open_document("https://example.com/doc.pdf").is_err());
+        assert!(validate(json!({"bytes":0}), vec![], &json!({"op":"export"})).is_err());
+        assert!(validate(
+            json!({"bytes":268435457_u64}),
+            vec![],
+            &json!({"op":"export"})
+        )
+        .is_err());
+        assert!(validate(
+            json!({"offset":2,"chunk":"AAAA"}),
+            vec![],
+            &json!({"op":"export_chunk","offset":0})
+        )
+        .is_err());
         assert!(validate(json!({"width":999999}), vec![], &json!({"op":"render"})).is_err());
         assert!(validate(json!({"text":"a"}), vec![0], &json!({"op":"extract"})).is_err());
     }

@@ -52,3 +52,9 @@ Informa las pruebas omitidas o bloqueadas por el entorno. Para cambios solo de d
 Para repetir las pruebas con PDFium: `PDF_VIEW_ENGINE=pdfium PDF_VIEW_PDFIUM="$PWD/build/pdfium/lib/libpdfium.so" ./scripts/smoke.sh`. La misma suite verifica ambos motores; los tiempos de [Rendimiento](rendimiento.md) no son pruebas de aceptación para cualquier documento.
 
 Las pruebas visuales verifican también interpolación del scroll con rueda, precarga a resolución de lectura, navegación repetida sin renderizado en primer plano, conservación de los delegados visibles y descarte de imágenes tardías después de cambiar a una página en caché.
+
+Con PDFium, `integration` guarda subrayados y notas Unicode sobre PDFs temporales, vuelve a abrirlos en otro broker y verifica su persistencia. Comprueba también rechazo de coordenadas inválidas, archivos sin permiso de escritura, archivos sustituidos y PDFs cifrados, preservando los bytes originales y limpiando archivos de preparación. La prueba visual crea una nota desde el diálogo; la interacción comprueba subrayado tras rotación y reapertura. Ninguna prueba modifica documentos personales.
+
+La cinta rápida se prueba con eventos reales de clic izquierdo: apertura al seleccionar, elección de azul, subrayado y lectura del color guardado. La integración verifica persistencia RGB y rechazo de colores malformados sin modificar el original.
+
+La regresión de subrayados comprueba los píxeles renderizados de los seis colores después de guardar y reabrir: exige una línea continua bajo cada palabra. Validar únicamente el campo RGB no detectaba el orden incorrecto de QuadPoints.

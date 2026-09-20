@@ -27,6 +27,17 @@ struct List {
     prev: *mut List,
 }
 #[repr(C)]
+struct AnnotMapping {
+    area: Rectangle,
+    annot: P,
+}
+#[repr(C)]
+struct Color {
+    red: u16,
+    green: u16,
+    blue: u16,
+}
+#[repr(C)]
 struct Action {
     kind: c_int,
     title: *mut c_char,
@@ -66,6 +77,13 @@ extern "C" {
     fn poppler_page_find_text(page: P, text: *const c_char) -> *mut List;
     fn poppler_rectangle_free(rect: P);
     fn poppler_page_render(page: P, cr: P);
+    fn poppler_page_get_annot_mapping(page: P) -> *mut List;
+    fn poppler_page_free_annot_mapping(list: P);
+    fn poppler_annot_get_annot_type(annot: P) -> c_int;
+    fn poppler_annot_get_contents(annot: P) -> *mut c_char;
+    fn poppler_annot_get_color(annot: P) -> *mut Color;
+    fn poppler_color_free(color: P);
+    fn poppler_annot_get_rectangle(annot: P, rect: *mut Rectangle);
     fn poppler_index_iter_new(doc: P) -> P;
     fn poppler_index_iter_get_child(iter: P) -> P;
     fn poppler_index_iter_next(iter: P) -> c_int;
@@ -566,4 +584,194 @@ impl<'a> PdfiumDocument<'a> {
             pixels,
         })
     }
+}
+
+use pdfium_render::prelude::{
+    PdfColor, PdfPageAnnotationCommon, PdfPoints, PdfQuadPoints, PdfRect,
+    PdfSecurityHandlerRevision,
+};
+use serde_json::{json, Value};
+impl PdfiumDocument<'_> {
+    pub fn can_annotate(&self) -> bool {
+        matches!(
+            self.0.permissions().security_handler_revision(),
+            Ok(PdfSecurityHandlerRevision::Unprotected)
+        ) && self.0.signatures().is_empty()
+            && self
+                .0
+                .permissions()
+                .can_add_or_modify_text_annotations()
+                .unwrap_or(false)
+    }
+}
+impl Page {
+    pub fn annotations(&self) -> Result<Vec<Value>> {
+        let (_, height) = self.size()?;
+        let mut notes = Vec::new();
+        // Read metadata with Poppler: pdfium-render 0.9.4 casts an annotation
+        // to a page object when stroke_color() encounters an appearance stream.
+        // That invalid handle crashes after rendering some annotations.
+        // SAFETY: mapping owns its annotations until the list is freed; returned
+        // contents and colors have independent ownership and matching destructors.
+        unsafe {
+            let mappings = Owned(
+                poppler_page_get_annot_mapping(self.0 .0).cast(),
+                poppler_page_free_annot_mapping,
+            );
+            let mut node = mappings.0.cast::<List>();
+            for _ in 0..256 {
+                if node.is_null() {
+                    break;
+                }
+                let mapping = &*((*node).data.cast::<AnnotMapping>());
+                node = (*node).next;
+                let kind = match poppler_annot_get_annot_type(mapping.annot) {
+                    1 => "note",
+                    9 => "highlight",
+                    10 => "underline",
+                    _ => continue,
+                };
+                let mut r = mapping.area;
+                poppler_annot_get_rectangle(mapping.annot, &mut r);
+                let contents = Owned(poppler_annot_get_contents(mapping.annot).cast(), g_free);
+                let color = Owned(
+                    poppler_annot_get_color(mapping.annot).cast(),
+                    poppler_color_free,
+                );
+                let rgb = if color.0.is_null() {
+                    [0, 0, 0]
+                } else {
+                    let c = &*color.0.cast::<Color>();
+                    [c.red, c.green, c.blue].map(|v| (u32::from(v) + 128) / 257)
+                };
+                notes.push(
+                    json!({"kind":kind,"color":format!("#{:02x}{:02x}{:02x}",rgb[0],rgb[1],rgb[2]),
+                    "text":string(contents.0.cast()).chars().take(4000).collect::<String>(),
+                    "rect":[r.x1,height-r.y2,r.x2-r.x1,r.y2-r.y1]}),
+                );
+            }
+        }
+        Ok(notes)
+    }
+}
+
+pub fn export_annotation(engine: &Pdfium, v: &Value) -> Result<Vec<u8>> {
+    let document = PdfiumDocument::open(engine, v["password"].as_str().unwrap_or(""))?;
+    if !document.can_annotate() {
+        return Err("No se pueden anotar PDFs protegidos o firmados en esta versión.".into());
+    }
+    let value = match v.get("color") {
+        None => "#e69600",
+        Some(color) => color.as_str().ok_or("Color inválido.")?,
+    };
+    let [red, green, blue] = pdf_view_backend::annotation_rgb(value)?;
+    let ink = PdfColor::new(red, green, blue, 255);
+    let number = pdf_view_backend::integer(v, "page", 0);
+    let kind = v["annotation"].as_str().unwrap_or("");
+    let text = v["note"].as_str().unwrap_or("");
+    let rects: Vec<Rect> =
+        serde_json::from_value(v["rects"].clone()).map_err(|_| "Selección inválida.")?;
+    if number < 1
+        || number > i64::from(document.0.pages().len())
+        || !["note", "underline"].contains(&kind)
+        || text.chars().count() > 4000
+        || rects.is_empty()
+        || rects.len() > 128
+        || (kind == "note" && text.trim().is_empty())
+    {
+        return Err("Anotación inválida (máximo 128 palabras y 4000 caracteres).".into());
+    }
+    {
+        let mut page = document
+            .0
+            .pages()
+            .get(number as i32 - 1)
+            .map_err(|_| "Página inválida.")?;
+        let (w, h) = (
+            f64::from(page.width().value),
+            f64::from(page.height().value),
+        );
+        if rects.iter().any(|r| {
+            !r.valid()
+                || r.0 < 0.
+                || r.1 < 0.
+                || r.2 <= 0.
+                || r.3 <= 0.
+                || r.0 + r.2 > w + 1.
+                || r.1 + r.3 > h + 1.
+        }) {
+            return Err("Coordenadas fuera de la página.".into());
+        }
+        let bounds = |r: Rect| {
+            PdfRect::new(
+                PdfPoints::new((h - r.1 - r.3) as f32),
+                PdfPoints::new(r.0 as f32),
+                PdfPoints::new((h - r.1) as f32),
+                PdfPoints::new((r.0 + r.2) as f32),
+            )
+        };
+        let result = (|| -> std::result::Result<(), pdfium_render::prelude::PdfiumError> {
+            if kind == "note" {
+                let r = bounds(rects[0]);
+                let mut a = page.annotations_mut().create_text_annotation(text)?;
+                a.set_position(r.left(), r.bottom())?;
+                a.set_width(PdfPoints::new(20.))?;
+                a.set_height(PdfPoints::new(20.))?;
+                a.set_stroke_color(ink)?;
+            } else {
+                let union = rects.iter().copied().reduce(|a, b| a.union(b)).unwrap();
+                let r = bounds(union);
+                let mut a = page.annotations_mut().create_underline_annotation()?;
+                a.set_position(r.left(), r.bottom())?;
+                a.set_width(r.width())?;
+                a.set_height(r.height())?;
+                a.set_stroke_color(ink)?;
+                for rect in rects {
+                    let r = bounds(rect);
+                    // Text markup uses Z order (top-left, top-right, bottom-left,
+                    // bottom-right), not PdfRect's counter-clockwise polygon order.
+                    let quad = PdfQuadPoints::new(
+                        r.left(),
+                        r.top(),
+                        r.right(),
+                        r.top(),
+                        r.left(),
+                        r.bottom(),
+                        r.right(),
+                        r.bottom(),
+                    );
+                    a.attachment_points_mut()
+                        .create_attachment_point_at_end(quad)?;
+                }
+            }
+            Ok(())
+        })();
+        result.map_err(|_| "No se pudo crear la anotación.")?;
+    }
+    struct BoundedPdf(Vec<u8>);
+    impl std::io::Write for BoundedPdf {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            if self.0.len() + bytes.len() > 256 * 1024 * 1024 {
+                return Err(std::io::Error::other("PDF demasiado grande"));
+            }
+            self.0.extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let mut output = BoundedPdf(Vec::new());
+    document
+        .0
+        .save_to_writer(&mut output)
+        .map_err(|_| "No se pudo guardar el PDF (máximo 256 MiB).")?;
+    let checked = engine
+        .load_pdf_from_byte_slice(&output.0, None)
+        .map_err(|_| "El PDF guardado no se pudo verificar.")?;
+    if checked.pages().len() != document.0.pages().len() {
+        return Err("El PDF guardado perdió páginas.".into());
+    }
+    drop(checked);
+    Ok(output.0)
 }

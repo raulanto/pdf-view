@@ -5,7 +5,12 @@ import Quickshell.Io
 Item {
     id: page
     property bool loading: false
-    readonly property bool busy: loading || renderDelay.running
+    readonly property bool busy: loading || renderDelay.running || saving
+    property bool saving: false
+    property string annotationColor: "#e69600"
+    property bool canAnnotate: false
+    property var annotations: []
+    property string saveStatus: ""
     property string error: ""
     property int pageCount: 0
     readonly property bool hasPage: preview.source.toString().length > 0
@@ -75,6 +80,8 @@ Item {
     property bool ready: false
     property var opening: null
     property string documentUrl: ""
+    signal selectionFinished(point position)
+    signal annotationSaved()
     signal changed()
     signal revealMatch(point point)
     QtObject { id: highlights; function requestPaint() { page.changed() } }
@@ -86,7 +93,7 @@ Item {
         running: command[0].length > 0
         onStarted: { page.ready=true; if (page.opening) { const file=page.opening; page.opening=null; page.open(file) } }
         onExited: {
-            page.ready=false; page.loading=false; page.searching=false; page.auxiliaryBusy=false
+            page.ready=false; page.saving=false; page.loading=false; page.searching=false; page.auxiliaryBusy=false
             page.pending=[null,null,null]; page.error="El servicio Rust terminó. Abre el documento para reintentar."
             page.changed()
         }
@@ -119,6 +126,8 @@ Item {
         return {op:op,page:currentPage,rotation:rotation/90,dpi:targetDpi,outline:false,text:false}
     }
     function open(url) {
+        if (saving) return
+        canAnnotate=false; annotations=[]; saveStatus=""
         if (!ready) { opening=url; backend.running=true; return }
         renderDelay.stop(); regionDelay.stop()
         cancel(0); cancel(1); cancel(2)
@@ -177,6 +186,16 @@ Item {
         else if (kind===1) searching=false
         else auxiliaryBusy=false
         const data=message.data
+        if (request.op==="save") {
+            saving=false
+            if (data.error) { auxiliaryError=data.error; changed(); Qt.callLater(pumpAuxiliary); return }
+            saveStatus=data.warning || "Anotación guardada en el PDF."
+            cancel(0); cancel(1); cancel(2); resetRegion(); renderDelay.stop()
+            pageImages={}; imageInfo={}; imageOrder=[]; preloadAttempts={}; thumbnails={}; thumbnailQueue=[]; thumbnailOrder=[]; failedThumbnails={}
+            words=[]; annotations=[]; textReady=false; needsText=true; needsRefinement=false; clearSelection()
+            const reload=renderRequest("open"); reload.url=documentUrl; send(0,reload); annotationSaved()
+            return
+        }
         // Record completed attempts only: a canceled preload must remain eligible.
         if (request.preload) preloadAttempts[request.page+":"+(request.rotation*90)+":"+request.dpi]=true
         if (data.error || data.locked) {
@@ -197,7 +216,7 @@ Item {
             anchor=-1; cursor=-1; selectedText=data.text
         } else if (request.op==="text") {
             if (request.page===currentPage && request.rotation===rotation/90) {
-                words=data.words; textReady=true
+                words=data.words; textReady=true; annotations=data.annotations || []; canAnnotate=!!data.canAnnotate
                 if (data.outline) outline=data.outline
             }
         } else if (request.op==="thumbnail") {
@@ -220,7 +239,9 @@ Item {
         highlights.requestPaint(); changed(); Qt.callLater(pumpAuxiliary)
     }
     function goToPage(number) {
+        if (saving) return
         if (number<1 || number>pageCount || number===currentPage) return
+        annotations=[]
         cancelAuxiliary(); resetRegion(); preloadAttempts={}; currentPage=number
         preview.source=pageImages[number+":"+rotation] || (rotation===0 ? thumbnails[number] || "" : "")
         words=[]; textReady=false; needsText=true; needsRefinement=false; clearSelection()
@@ -230,6 +251,7 @@ Item {
         } else render()
     }
     function rotatePage(steps) {
+        if (saving) return
         if (!pageCount) return
         cancelAuxiliary(); resetRegion(); preloadAttempts={}; rotation=((rotation+steps*90)%360+360)%360
         preview.source=pageImages[currentPage+":"+rotation] || ""
@@ -282,11 +304,27 @@ Item {
     function clearSelection() { anchor=-1; cursor=-1; selectedText=""; highlights.requestPaint() }
     function selectAll() { if (canCopy && words.length) {selectionStartPage=currentPage;selectionStartWord=0;anchor=0;cursor=words.length-1;updateSelection()} }
     function copySelection() { if (selectedText.length) Quickshell.clipboardText=selectedText }
+    function saveAnnotation(kind,note) {
+        if (saving || !ready || !canAnnotate) return false
+        let rects=[]
+        if (anchor>=0 && cursor>=0) {
+            const first=Math.min(anchor,cursor), last=Math.max(anchor,cursor)
+            if (last-first>=128) { auxiliaryError="Selecciona hasta 128 palabras para subrayar."; return false }
+            for (let i=first;i<=last;i++) rects.push(words[i].rect)
+        }
+        if (kind==="underline" && !rects.length) { auxiliaryError="Selecciona el texto de esta página para subrayar."; return false }
+        if (kind==="note") rects=[rects.length ? rects[0] : [Math.min(24,originalWidth/4),Math.min(24,originalHeight/4),Math.min(20,originalWidth/4),Math.min(20,originalHeight/4)]]
+        const request={op:"save",page:currentPage,annotation:kind,note:note,rects:rects,color:annotationColor}
+        if (encodeURIComponent(JSON.stringify(request)).replace(/%[A-F\d]{2}/g,"x").length>14000) { auxiliaryError="La anotación es demasiado larga. Divide la selección o la nota."; return false }
+        cancelAuxiliary(); saveStatus=""; saving=true; send(2,request); return true
+    }
     function selectPageRange(first,last) {
+        if (saving) return
         if (!canCopy || first<1 || last<first || last>pageCount || last-first>=100) {auxiliaryError="Selecciona un rango de hasta 100 páginas con permiso de copia.";return}
         cancelAuxiliary(); clearSelection(); send(2,{op:"extract",first:first,last:last})
     }
     function cancelAuxiliary() {
+        if (saving) return
         if (pending[2] && pending[2].op==="text") needsText=true
         if (pending[2] && pending[2].op==="thumbnail") thumbnailQueue.unshift(pending[2].page)
         cancel(2)
@@ -406,6 +444,7 @@ Item {
         acceptedButtons: Qt.LeftButton
         cursorShape: Qt.IBeamCursor
         onPressed: mouse => {
+            if (page.saving) { mouse.accepted=false; return }
             page.forceActiveFocus(); const i = page.wordAt(mouse.x, mouse.y)
             if (i < 0 || !page.canCopy) { mouse.accepted = false; return }
             if ((mouse.modifiers & Qt.ShiftModifier) && page.selectionStartPage > 0) {
@@ -416,6 +455,10 @@ Item {
             page.clearSelection(); const r = page.mapRect(page.words[i].rect)
             if (mouse.x < r.x - 4 || mouse.y < r.y - 4 || mouse.x > r.x + r.width + 4 || mouse.y > r.y + r.height + 4) { mouse.accepted = false; return }
             page.selectionStartPage = page.currentPage; page.selectionStartWord = i; page.anchor = i; page.cursor = i; page.updateSelection()
+        }
+        onReleased: mouse => {
+            if (page.anchor>=0 && page.cursor>=0 && page.selectedText.length)
+                page.selectionFinished(Qt.point(mouse.x,mouse.y+(page.currentPage-1)*(page.singleHeight+16)))
         }
         onPositionChanged: mouse => { if (pressed && page.anchor >= 0) { page.cursor = page.wordAt(mouse.x, mouse.y); page.updateSelection() } }
     }

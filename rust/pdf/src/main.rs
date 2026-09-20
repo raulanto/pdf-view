@@ -2,6 +2,7 @@ mod cache;
 mod process;
 mod protocol;
 mod sandbox;
+mod save;
 
 use cache::Cache;
 use process::{cancel, Job, WorkerProcess};
@@ -35,6 +36,7 @@ fn main() -> io::Result<()> {
     ];
     let mut jobs: [Option<Job>; 3] = [None, None, None];
     let mut file: Option<Arc<File>> = None;
+    let mut document_path: Option<PathBuf> = None;
     let mut password = String::new();
     let mut stamp = (0, 0, 0);
     let mut input = io::stdin().lock();
@@ -67,7 +69,13 @@ fn main() -> io::Result<()> {
             password.clear();
             cache.lock().unwrap().clear();
             match open_document(req["url"].as_str().unwrap_or("")) {
-                Ok(f) => file = Some(Arc::new(f)),
+                Ok(f) => {
+                    document_path = url::Url::parse(req["url"].as_str().unwrap_or(""))
+                        .ok()
+                        .and_then(|u| u.to_file_path().ok())
+                        .and_then(|p| p.canonicalize().ok());
+                    file = Some(Arc::new(f));
+                }
                 Err(e) => {
                     emit(id, kind, json!({"error":e}));
                     continue;
@@ -96,6 +104,14 @@ fn main() -> io::Result<()> {
         if let Ok(meta) = file.metadata() {
             let next = (meta.mtime(), meta.mtime_nsec(), meta.len());
             if next != stamp {
+                if op == "save" {
+                    emit(
+                        id,
+                        kind,
+                        json!({"error":"El PDF cambió fuera del visor. Ábrelo de nuevo antes de guardar."}),
+                    );
+                    continue;
+                }
                 cache.lock().unwrap().clear();
                 for (job, w) in jobs.iter_mut().zip(&workers) {
                     cancel(job, w);
@@ -139,8 +155,19 @@ fn main() -> io::Result<()> {
         let flag = cancelled.clone();
         let worker_slot = workers[kind].clone();
         let cache = cache.clone();
+        let save_path = document_path.clone();
         let thread = thread::spawn(move || {
-            let value = match execute(&worker_slot, &req, &flag) {
+            let result = if req["op"] == "save" {
+                let result = save_path
+                    .as_deref()
+                    .ok_or_else(|| "Ruta de guardado no disponible.".to_owned())
+                    .and_then(|path| save::save(&worker_slot, &file, path, &req, &flag, id));
+                worker_slot.lock().unwrap().take();
+                result
+            } else {
+                execute(&worker_slot, &req, &flag)
+            };
+            let value = match result {
                 Ok(v) => v,
                 Err(e) => json!({"error":e}),
             };

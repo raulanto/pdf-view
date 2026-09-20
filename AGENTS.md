@@ -12,12 +12,13 @@ El alcance actual incluye:
 - Navegación multipágina, miniaturas e índice del documento.
 - Zoom, ajuste de página/ancho y rotaciones de 90° para visualización.
 - Búsqueda en el documento, resaltados, selección por palabras y entre páginas, y copia al portapapeles.
+- Notas y subrayados PDF con guardado atómico sobre el archivo abierto y lectura posterior.
 - OCR local de páginas sin texto nativo, con Tesseract y modelos instalados en el sistema.
 - Tema Omarchy con recarga en vivo y paleta de respaldo.
 - Caché acotada, detalle de la región visible y procesamiento PDF en aislamiento.
 - Compilación reproducible a partir de dependencias fijadas y empaquetado local para Pacman.
 
-La aplicación es de **solo lectura**: no modifica el PDF. No amplíes el alcance a edición, anotaciones persistentes, firma, sincronización, cuentas, telemetría, servicios en la nube o descarga de documentos salvo que la tarea lo pida. OCR no significa guardar una capa de texto en el archivo original. Tampoco debe describirse la aplicación como auditada o completamente segura.
+La aplicación permite lectura y **notas y subrayados persistentes**, guardados explícitamente sobre el archivo abierto. No amplíes el alcance a edición del contenido, firma, sincronización, cuentas, telemetría, servicios en la nube o descarga de documentos salvo que la tarea lo pida. OCR no significa guardar una capa de texto en el archivo original. Tampoco debe describirse la aplicación como auditada o completamente segura.
 
 ## Arquitectura y mapa del repositorio
 
@@ -29,6 +30,7 @@ La aplicación es de **solo lectura**: no modifica el PDF. No amplíes el alcanc
 | `qml/PdfPage.qml` | Presentación de páginas, interacción con texto y cliente IPC |
 | `qml/Theme.qml` | Cliente del servicio de temas |
 | `rust/pdf/src/main.rs` | `pdf-view-backend`: apertura, descriptores, Bubblewrap, cancelación, caché y validación de respuestas |
+| `rust/pdf/src/save.rs` | Escritura atómica del PDF, validación de fragmentos y detección de cambios externos |
 | `rust/pdf/src/worker.rs` | `pdf-worker`: ejecución de operaciones PDF/OCR y límites de recursos |
 | `rust/pdf/src/native.rs` | Frontera FFI con PDFium, Poppler GLib, Cairo y Tesseract y gestión de sus recursos |
 | `rust/pdf/src/lib.rs` | Tipos, geometría, utilidades y protocolo del worker |
@@ -55,6 +57,8 @@ Toda comunicación entre procesos propios usa JSON por líneas sobre stdin/stdou
 - **Backend → worker:** operaciones secuenciales por worker persistente, con parámetros enviados por stdin. El documento se entrega mediante un descriptor abierto y montado por Bubblewrap.
 - **Worker → backend:** una línea JSON con `meta` y `pixels`; los píxeles son RGB crudos codificados en base64. El backend valida metadatos, dimensiones y longitud antes de codificar el PNG que recibe QML.
 - **Servicio de temas → QML:** eventos con `palette` y `status`. Son actualizaciones espontáneas, no respuestas correlacionadas con solicitudes del visor.
+
+El guardado usa `save` en el canal auxiliar. El worker genera la exportación en memoria y la entrega mediante `export_chunk`: fragmentos de 1 MiB codificados en base64 dentro de JSON. Solo el broker prepara el archivo de destino y reemplaza el original tras comprobar identidad, escritura y sincronización; ningún archivo temporal transporta datos entre procesos.
 
 Reserva stdout para el protocolo; los diagnósticos van a stderr. No registres contraseñas ni texto extraído del documento. Cambia productores, consumidores y pruebas juntos si modificas un contrato. No añadas formatos alternativos ni compatibilidad especulativa.
 

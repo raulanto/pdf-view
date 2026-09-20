@@ -39,3 +39,11 @@ La aplicación respeta permisos de copia y no ejecuta acciones, enlaces externos
 La sonda Rust comprueba la inaccesibilidad del directorio personal y de la sesión, la lectura sin escritura del PDF, la ausencia de red externa y que un descriptor privado heredado no llegue al worker. Las pruebas también cubren URLs remotas, archivos inválidos, FIFO, permisos y límites del protocolo.
 
 Estas pruebas no sustituyen una auditoría ni un corpus exhaustivo de documentos maliciosos. Al cambiar el sandbox o un límite, actualiza el código, esta documentación y el caso de prueba correspondiente. Nunca desactives Bubblewrap como alternativa para hacer pasar las pruebas.
+
+## Escritura explícita
+
+Solo `subrayar` y `guardar nota` autorizan escritura sobre el PDF abierto. El worker conserva el montaje original de solo lectura y no obtiene acceso de escritura al host. La exportación viaja por JSON/base64 en fragmentos de 1 MiB; su tamaño máximo es 256 MiB y se limita el tiempo de exportación y transferencia a 45 s (los tiempos de sincronización del sistema de archivos dependen del sistema). La memoria del worker sigue limitada a 1 GiB.
+
+El broker comprueba permisos de escritura y compara dispositivo, inodo, tamaño y tiempos de modificación/cambio antes y después de exportar. Rechaza rutas sustituidas y cambios detectados; esta comprobación no es un bloqueo contra otros programas que escriban simultáneamente. La sustitución es atómica dentro del mismo directorio, con archivo exclusivo inicialmente 0600 y permisos POSIX del original antes de publicar. No se preservan necesariamente ACL, atributos extendidos ni la identidad del inodo/enlaces duros. No hay copias de respaldo automáticas.
+
+Se rechaza anotar documentos cifrados o con firmas detectadas. Los errores anteriores al rename dejan el original intacto; si la sincronización posterior de la carpeta falla, se informa que el PDF se guardó pero la sincronización no pudo completarse. Notas y títulos se muestran como texto plano. Límites adicionales: 128 rectángulos por anotación, 4000 caracteres de nota, 256 anotaciones leídas por página; el límite IPC de 16 KiB continúa vigente.

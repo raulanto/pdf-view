@@ -99,6 +99,38 @@ def image(meta):
     assert int.from_bytes(raw[20:24], 'big')==meta['height']
 
 
+def underline_pixels(meta, rect, rgb):
+    """Require a colored horizontal stroke under the word, not just PDF metadata."""
+    cairo = C.CDLL('libcairo.so.2')
+    def function(name, result, *args):
+        f=getattr(cairo,name); f.restype=result; f.argtypes=args; return f
+    p,i=C.c_void_p,C.c_int
+    with tempfile.NamedTemporaryFile(suffix='.png') as png:
+        png.write(base64.b64decode(meta['image'].split(',',1)[1])); png.flush()
+        surface=function('cairo_image_surface_create_from_png',p,C.c_char_p)(os.fsencode(png.name))
+    try:
+        assert function('cairo_surface_status',i,p)(surface)==0
+        stride=function('cairo_image_surface_get_stride',i,p)(surface)
+        data=function('cairo_image_surface_get_data',p,p)(surface)
+        raw=C.string_at(data,stride*meta['height'])
+        scale=meta['width']/meta['pageWidth']
+        x,y,w,h=rect
+        left,right=round(x*scale),round((x+w)*scale)
+        top,bottom=round((y+h*0.85)*scale),min(meta['height'],round((y+h)*scale)+1)
+        coverage=0
+        for row in range(top,bottom):
+            matches=0
+            for col in range(left,right):
+                offset=row*stride+col*4
+                pixel=int.from_bytes(raw[offset:offset+4],sys.byteorder)
+                actual=((pixel>>16)&255,(pixel>>8)&255,pixel&255)
+                matches+=all(abs(a-b)<=12 for a,b in zip(actual,rgb))
+            coverage=max(coverage,matches)
+        assert coverage>=(right-left)*0.8,('missing colored underline',rgb,coverage,right-left)
+    finally:
+        function('cairo_surface_destroy',None,p)(surface)
+
+
 with tempfile.TemporaryDirectory() as directory:
     root=Path(directory); pdf=root/'sample # á space.pdf'; write_pdf(pdf)
     output=os.environ.get('PDF_VIEW_TEST_FIXTURE')
@@ -168,6 +200,73 @@ with tempfile.TemporaryDirectory() as directory:
             assert 'error' in broker.call('extract',kind=2,first=1,last=1)
         else: print('SKIP: qpdf password/copy permission checks')
     finally: broker.close()
+    if os.environ.get('PDF_VIEW_ENGINE')!='poppler' and (os.environ.get('PDF_VIEW_PDFIUM') or os.environ.get('PDF_VIEW_ENGINE')=='pdfium'):
+        editable=root/'annotations.pdf'; write_pdf(editable)
+        editor=Broker()
+        original=editable.read_bytes()
+        try:
+            image(editor.call('open',url=editable.as_uri()))
+            metadata=editor.call('text',kind=2)
+            assert metadata['canAnnotate'] and metadata['annotations']==[]
+            rect=metadata['words'][0]['rect']
+            for invalid_color in ['red','#12fffff','#xxxxxx',12]:
+                assert 'error' in editor.call('save',kind=2,annotation='underline',rects=[rect],note='',color=invalid_color)
+                assert editable.read_bytes()==original
+            rejected=editor.call('save',kind=2,annotation='underline',rects=[[-10,0,10,10]],note='')
+            assert 'error' in rejected and editable.read_bytes()==original,rejected
+            saved=editor.call('save',kind=2,annotation='underline',rects=[rect],note='',color='#397ed0')
+            assert saved.get('saved'),saved
+        finally: editor.close()
+        editor=Broker()
+        try:
+            image(editor.call('open',url=editable.as_uri()))
+            metadata=editor.call('text',kind=2)
+            assert [a['kind'] for a in metadata['annotations']]==['underline'],metadata
+            assert metadata['annotations'][0]['color']=='#397ed0',metadata
+            underline_pixels(editor.call('render'),rect,(57,126,208))
+            image(editor.call('thumbnail',kind=2,page=1))
+            reread=editor.call('text',kind=2)
+            assert reread['annotations']==metadata['annotations'],reread
+            saved=editor.call('save',kind=2,annotation='note',rects=[[24,24,20,20]],note='Nota española\nPersistencia al reabrir')
+            assert saved.get('saved'),saved
+            image(editor.call('open',url=editable.as_uri()))
+            metadata=editor.call('text',kind=2)
+            assert any(a['text']=='Nota española\nPersistencia al reabrir' for a in metadata['annotations']),metadata
+            assert any(a['kind']=='underline' for a in metadata['annotations'])
+            before=editable.read_bytes()
+            editable.chmod(0o444)
+            assert 'error' in editor.call('save',kind=2,annotation='note',rects=[[24,24,20,20]],note='Denied')
+            assert editable.read_bytes()==before
+            editable.chmod(0o644)
+            image(editor.call('open',url=editable.as_uri()))
+            with editable.open('ab') as modified: modified.write(b'\n% external modification\n')
+            before=editable.read_bytes()
+            assert 'error' in editor.call('save',kind=2,annotation='note',rects=[[24,24,20,20]],note='Changed in place')
+            assert editable.read_bytes()==before
+            image(editor.call('open',url=editable.as_uri()))
+            replacement=root/'changed.pdf'; write_pdf(replacement); replacement.replace(editable)
+            before=editable.read_bytes()
+            assert 'error' in editor.call('save',kind=2,annotation='note',rects=[[24,24,20,20]],note='Stale')
+            assert editable.read_bytes()==before
+            if shutil.which('qpdf'):
+                editor.call('open',url=encrypted.as_uri()); editor.call('unlock',password='secret')
+                protected=encrypted.read_bytes()
+                assert 'error' in editor.call('save',kind=2,annotation='note',rects=[[24,24,20,20]],note='Protected')
+                assert encrypted.read_bytes()==protected
+            assert not list(root.glob('.pdf-view-*.tmp'))
+        finally: editor.close()
+        for color in ['#e69600','#dc4c64','#2a9968','#397ed0','#9561c9','#242424']:
+            colored=root/('ink-'+color[1:]+'.pdf'); write_pdf(colored)
+            editor=Broker()
+            try:
+                editor.call('open',url=colored.as_uri())
+                words=editor.call('text',kind=2)['words']
+                assert editor.call('save',kind=2,annotation='underline',rects=[w['rect'] for w in words],color=color,note='').get('saved')
+                rendered=editor.call('open',url=colored.as_uri())
+                for word in words:
+                    underline_pixels(rendered,word['rect'],tuple(bytes.fromhex(color[1:])))
+            finally: editor.close()
+        print('Annotations persisted: underline, Unicode notes, reopen; invalid edits, protected/read-only/changed files preserved')
     worker=root/'worker'
     shutil.copyfile(Path(sys.argv[1]).with_name('pdf-worker'),worker);worker.chmod(0o700)
     cached_broker=Broker(worker)

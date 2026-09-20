@@ -58,3 +58,19 @@ QML abre con 54 dpi, `text:false` y `outline:false`. La imagen se publica sin es
 PDFium se usa para imagen base, miniaturas y regiones. Poppler mantiene geometría, permisos, búsqueda, índice y texto; Tesseract conserva OCR. El binding y la biblioteca PDFium solo se cargan en el worker, montada en `/app/libpdfium.so`. No se copian bibliotecas al directorio personal ni se ejecutan acciones del PDF.
 
 El visor precarga imágenes a resolución de lectura de dos páginas por delante y por detrás en el canal de renderizado libre. Texto y OCR no bloquean esa precarga. Reutiliza las imágenes al cambiar de página y mantiene su imagen al refinar el zoom. Conserva los delegados de páginas que siguen visibles, agregando o retirando únicamente los extremos del modelo. El flujo continuo actual aproxima la altura de todas las páginas con la de la página activa; documentos de tamaños mixtos todavía pueden mover el desplazamiento al cambiar de página.
+
+## Guardado de anotaciones
+
+`save` en el canal 2 contiene página, tipo `note`/`underline`, rectángulos y texto. El worker abre una instancia independiente del PDF, verifica permisos y ausencia de cifrado/firma, añade la anotación y exporta a memoria con límite de 256 MiB. Reabre esa salida en PDFium antes de devolverla. El broker recibe `bytes` y solicita `export_chunk` con offsets consecutivos; los fragmentos JSON/base64 contienen hasta 1 MiB. Nunca envía el PDF completo al frontend.
+
+`save.rs` comprueba identidad y marcas de modificación del archivo abierto, crea un archivo de preparación exclusivo en la misma carpeta, valida tamaños/cabecera/final de exportación, sincroniza y sustituye el destino mediante rename. Ante errores previos al reemplazo, elimina la preparación y conserva el original. La preparación es parte del guardado atómico, no un canal IPC. Tras guardar, QML vacía las imágenes y reabre el archivo en la misma página. Las respuestas `text` incluyen `annotations` y `canAnnotate` validados por el broker.
+
+### Acciones de selección
+
+`PdfPage.qml` mantiene selección y estado de anotación y emite `selectionFinished` al soltar el botón izquierdo. `Main.qml` transforma el punto a coordenadas de la ventana y coordina las acciones. `components/SelectionToolbar.qml` presenta un popup sin acceso a IPC; emite señales para subrayar, añadir nota o copiar. `components/AnnotationColors.qml` centraliza la paleta, compartida con `NotesDialog.qml`. El color de la anotación se conserva en `PdfPage.annotationColor` y se envía como `#RRGGBB` al mismo flujo de guardado existente.
+
+Rust valida los seis dígitos hexadecimales y escribe el color RGB en la anotación PDF. La lectura de anotaciones devuelve el color, validado de nuevo antes de entregarlo a QML. Los colores de tinta son independientes de la paleta Omarchy; el resto de los controles continúa usando el tema.
+
+Poppler lee los metadatos y colores de anotaciones desde la página ya abierta. Se evita `stroke_color()` de pdfium-render 0.9.4: su fallback para apariencias convierte un handle de anotación en uno de objeto de página, lo que provoca un cierre nativo tras renderizar. PDFium conserva el renderizado y la escritura de anotaciones.
+
+Los QuadPoints de subrayado se escriben en orden Z: superior izquierdo, superior derecho, inferior izquierdo, inferior derecho. No se usa la conversión genérica de rectángulo a polígono, cuyo orden antihorario producía marcas casi invisibles en PDFium.
