@@ -89,7 +89,7 @@ No elimines estas garantías para reducir código, acelerar una prueba o resolve
 
 ## Forma de trabajar
 
-Antes de cambiar código, lee el flujo completo afectado y sus llamadas, revisa `git status` y consulta `README.md`. Usa `rg` para localizar referencias. La guía `.agents/skills/pdf-view-dev/SKILL.md`, si está disponible, complementa estas instrucciones.
+Antes de cambiar código, lee el flujo completo afectado y sus llamadas, revisa `git status` y consulta `README.md`. Usa `rg` para localizar referencias. Las guías en `.agents/skills/pdf-view-dev/SKILL.md` y `.agents/skills/flea-architecture-pattern/SKILL.md`, si están disponibles, complementan estas instrucciones con los patrones de arquitectura y desarrollo del proyecto.
 
 Prefiere reutilizar funciones y bibliotecas existentes, la biblioteca estándar y las capacidades nativas de Quickshell. Añade una dependencia solo si resuelve una necesidad concreta; evita abstracciones para futuras funciones. Conserva los archivos lock y no actualices dependencias ajenas a la tarea.
 
