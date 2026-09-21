@@ -249,15 +249,6 @@ FloatingWindow {
                             ScrollBar.vertical: ScrollBar { palette.mid: theme.colors.border; palette.dark: theme.colors.accent }
                             ScrollBar.horizontal: ScrollBar { palette.mid: theme.colors.border; palette.dark: theme.colors.accent }
                             WheelHandler {
-                                target: null
-                                acceptedDevices: PointerDevice.Mouse
-                                acceptedModifiers: Qt.NoModifier
-                                onWheel: event => {
-                                    if (event.pixelDelta.y || event.pixelDelta.x) { event.accepted=false; return }
-                                    viewport.scrollBy(-event.angleDelta.y/120*100); event.accepted=true
-                                }
-                            }
-                            WheelHandler {
                                 acceptedModifiers: Qt.ControlModifier
                                 onWheel: event => { viewport.adjustZoom(event.angleDelta.y > 0 ? 1.1 : 1/1.1); event.accepted = true }
                             }
