@@ -59,7 +59,7 @@ FloatingWindow {
         canAnnotate: page.canAnnotate && !page.saving
         onColorChosen: value => page.annotationColor=value
         onUnderlineRequested: if (page.saveAnnotation("underline","")) close()
-        onRemoveUnderlineRequested: { page.clearSelection(); close() }
+        onRemoveUnderlineRequested: if (page.saveAnnotation("remove_underline","")) close()
         onNoteRequested: window.showNotes()
         onCopyRequested: { page.copySelection(); close() }
     }
