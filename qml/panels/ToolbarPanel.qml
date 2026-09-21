@@ -34,5 +34,6 @@ Flow {
     ThemedCommand { theme: root.theme; text: "ancho"; onClicked: root.viewport.fitMode = "width" }
     ThemedCommand { theme: root.theme; text: "↻ " + root.page.rotation + "°"; enabled: root.page.pageCount > 0; onClicked: root.page.rotatePage(1) }
     ThemedCommand { theme: root.theme; text: "anotar ▾"; Accessible.name: "Opciones de anotación"; enabled: root.page.canAnnotate && root.page.anchor>=0 && !root.page.saving; onClicked: root.window.showSelectionTools() }
+    ThemedCommand { theme: root.theme; text: "desmarcar"; Accessible.name: "Desmarcar selección"; visible: root.page.anchor>=0; enabled: !root.page.saving; onClicked: root.page.clearSelection() }
     ThemedCommand { theme: root.theme; text: "notas · " + root.page.annotations.filter(a=>a.kind==="note").length; enabled: root.page.hasPage && !root.page.saving; onClicked: root.window.showNotes() }
 }

@@ -59,6 +59,7 @@ FloatingWindow {
         canAnnotate: page.canAnnotate && !page.saving
         onColorChosen: value => page.annotationColor=value
         onUnderlineRequested: if (page.saveAnnotation("underline","")) close()
+        onRemoveUnderlineRequested: { page.clearSelection(); close() }
         onNoteRequested: window.showNotes()
         onCopyRequested: { page.copySelection(); close() }
     }
@@ -121,7 +122,7 @@ FloatingWindow {
     Shortcut { sequence: "Ctrl+A"; enabled: window.commandsEnabled; onActivated: page.selectAll() }
     Shortcut { sequence: "F3"; enabled: !notesDialog.visible && !page.saving && !picker.visible && !passwordDialog.visible; onActivated: page.nextMatch(1) }
     Shortcut { sequence: "Shift+F3"; enabled: !notesDialog.visible && !page.saving && !picker.visible && !passwordDialog.visible; onActivated: page.nextMatch(-1) }
-    Shortcut { sequence: "Escape"; enabled: !selectionToolbar.opened && !notesDialog.visible && !page.saving && (window.searchVisible || window.focusMode) && !picker.visible && !passwordDialog.visible; onActivated: { if (window.focusMode) { window.focusMode = false } else { searchBar.searchTimer.stop(); window.searchVisible = false; page.search(""); page.forceActiveFocus() } } }
+    Shortcut { sequence: "Escape"; enabled: !notesDialog.visible && !page.saving && !picker.visible && !passwordDialog.visible; onActivated: { if (selectionToolbar.opened) { selectionToolbar.close() } else if (page.anchor >= 0) { page.clearSelection() } else if (window.focusMode) { window.focusMode = false } else if (window.searchVisible) { searchBar.searchTimer.stop(); window.searchVisible = false; page.search(""); page.forceActiveFocus() } } }
 
     FilePicker {
         id: picker
