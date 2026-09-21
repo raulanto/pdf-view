@@ -57,19 +57,21 @@ Popup {
     contentItem: RowLayout {
         spacing: 0
 
-        // Paleta de color: puntos diminutos
+        // Paleta de color: cuadros de texto uniforme estilo terminal
         Repeater {
             model: [
-                { name: "Ámbar",   value: "#e69600" },
-                { name: "Rojo",    value: "#dc4c64" },
-                { name: "Verde",   value: "#2a9968" },
-                { name: "Azul",    value: "#397ed0" },
-                { name: "Violeta", value: "#9561c9" },
+                { name: "Ámbar",   value: "#e69600", fg: "#000000" },
+                { name: "Rojo",    value: "#dc4c64", fg: "#ffffff" },
+                { name: "Verde",   value: "#2a9968", fg: "#ffffff" },
+                { name: "Azul",    value: "#397ed0", fg: "#ffffff" },
+                { name: "Violeta", value: "#9561c9", fg: "#ffffff" },
             ]
             delegate: AbstractButton {
                 required property var modelData
-                implicitWidth:  Math.round(16 * toolbar.theme.scale)
-                implicitHeight: Math.round(24 * toolbar.theme.scale)
+                property bool sel: toolbar.selectedColor === modelData.value
+                readonly property int sz: Math.round(14 * toolbar.theme.scale)
+                implicitWidth:  sz + Math.round(4 * toolbar.theme.scale)
+                implicitHeight: implicitWidth
                 enabled: toolbar.canAnnotate
                 Accessible.name: "Color " + modelData.name
                 ToolTip.visible: hovered; ToolTip.text: modelData.name
@@ -77,13 +79,18 @@ Popup {
                 background: null
                 contentItem: Rectangle {
                     anchors.centerIn: parent
-                    width:  Math.round(8 * toolbar.theme.scale)
-                    height: width
-                    radius: width / 2
+                    width: parent.sz; height: width
                     color: modelData.value
-                    border.width: toolbar.selectedColor === modelData.value ? 1 : 0
+                    opacity: parent.enabled ? 1.0 : 0.35
+                    border.width: parent.sel ? 2 : 0
                     border.color: toolbar.theme.colors.foreground
-                    opacity: toolbar.canAnnotate ? 1.0 : 0.4
+                    Text {
+                        anchors.centerIn: parent
+                        text: parent.parent.sel ? "✓" : ""
+                        font.family: "monospace"
+                        font.pixelSize: Math.round(9 * toolbar.theme.scale)
+                        color: modelData.fg
+                    }
                 }
             }
         }
