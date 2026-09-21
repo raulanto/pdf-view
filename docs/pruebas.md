@@ -58,3 +58,5 @@ Con PDFium, `integration` guarda subrayados y notas Unicode sobre PDFs temporale
 La cinta rápida se prueba con eventos reales de clic izquierdo: apertura al seleccionar, elección de azul, subrayado y lectura del color guardado. La integración verifica persistencia RGB y rechazo de colores malformados sin modificar el original.
 
 La regresión de subrayados comprueba los píxeles renderizados de los seis colores después de guardar y reabrir: exige una línea continua bajo cada palabra. Validar únicamente el campo RGB no detectaba el orden incorrecto de QuadPoints.
+
+La eliminación se comprueba mediante clic real en la cinta y reapertura. Para los seis colores, la imagen tras borrar debe coincidir con la página original sin subrayados. Se verifica también que borrar conserve notas y subrayados fuera de la selección, y que una selección sin marcas no modifique el archivo.

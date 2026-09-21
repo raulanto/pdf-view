@@ -233,6 +233,17 @@ with tempfile.TemporaryDirectory() as directory:
             metadata=editor.call('text',kind=2)
             assert any(a['text']=='Nota española\nPersistencia al reabrir' for a in metadata['annotations']),metadata
             assert any(a['kind']=='underline' for a in metadata['annotations'])
+            other_rect=metadata['words'][-1]['rect']
+            assert editor.call('save',kind=2,annotation='underline',rects=[other_rect],note='',color='#dc4c64').get('saved')
+            editor.call('open',url=editable.as_uri())
+            assert editor.call('save',kind=2,annotation='remove_underline',rects=[rect],note='').get('saved')
+            editor.call('open',url=editable.as_uri())
+            remaining=editor.call('text',kind=2)['annotations']
+            assert [a['kind'] for a in remaining]==['note','underline'],remaining
+            assert remaining[1]['color']=='#dc4c64'
+            before=editable.read_bytes()
+            assert 'error' in editor.call('save',kind=2,annotation='remove_underline',rects=[rect],note='')
+            assert editable.read_bytes()==before
             before=editable.read_bytes()
             editable.chmod(0o444)
             assert 'error' in editor.call('save',kind=2,annotation='note',rects=[[24,24,20,20]],note='Denied')
@@ -259,12 +270,16 @@ with tempfile.TemporaryDirectory() as directory:
             colored=root/('ink-'+color[1:]+'.pdf'); write_pdf(colored)
             editor=Broker()
             try:
-                editor.call('open',url=colored.as_uri())
+                clean=editor.call('open',url=colored.as_uri())
                 words=editor.call('text',kind=2)['words']
                 assert editor.call('save',kind=2,annotation='underline',rects=[w['rect'] for w in words],color=color,note='').get('saved')
                 rendered=editor.call('open',url=colored.as_uri())
                 for word in words:
                     underline_pixels(rendered,word['rect'],tuple(bytes.fromhex(color[1:])))
+                assert editor.call('save',kind=2,annotation='remove_underline',rects=[words[0]['rect']],note='').get('saved')
+                erased=editor.call('open',url=colored.as_uri())
+                assert erased['image']==clean['image'], 'underline still visible after removal'
+                assert editor.call('text',kind=2)['annotations']==[]
             finally: editor.close()
         print('Annotations persisted: underline, Unicode notes, reopen; invalid edits, protected/read-only/changed files preserved')
     worker=root/'worker'

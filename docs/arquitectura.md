@@ -74,3 +74,5 @@ Rust valida los seis dígitos hexadecimales y escribe el color RGB en la anotaci
 Poppler lee los metadatos y colores de anotaciones desde la página ya abierta. Se evita `stroke_color()` de pdfium-render 0.9.4: su fallback para apariencias convierte un handle de anotación en uno de objeto de página, lo que provoca un cierre nativo tras renderizar. PDFium conserva el renderizado y la escritura de anotaciones.
 
 Los QuadPoints de subrayado se escriben en orden Z: superior izquierdo, superior derecho, inferior izquierdo, inferior derecho. No se usa la conversión genérica de rectángulo a polígono, cuyo orden antihorario producía marcas casi invisibles en PDFium.
+
+`save` admite `annotation: "remove_underline"` con los rectángulos de la selección. El worker coteja los centros de las palabras con los QuadPoints y elimina las anotaciones Underline coincidentes en orden inverso. Se procesa solo la página pedida, con un máximo de 256 anotaciones y 128 segmentos por subrayado; el guardado usa la misma exportación validada y sustitución atómica.

@@ -9,6 +9,7 @@ Item {
     property bool saving: false
     property string annotationColor: "#e69600"
     property bool canAnnotate: false
+    property bool visibleAnnotations: true
     property var annotations: []
     property string saveStatus: ""
     property string error: ""
@@ -189,7 +190,7 @@ Item {
         if (request.op==="save") {
             saving=false
             if (data.error) { auxiliaryError=data.error; changed(); Qt.callLater(pumpAuxiliary); return }
-            saveStatus=data.warning || "Anotación guardada en el PDF."
+            saveStatus=data.warning || (request.annotation==="remove_underline" ? "Subrayado eliminado del PDF." : "Anotación guardada en el PDF.")
             cancel(0); cancel(1); cancel(2); resetRegion(); renderDelay.stop()
             pageImages={}; imageInfo={}; imageOrder=[]; preloadAttempts={}; thumbnails={}; thumbnailQueue=[]; thumbnailOrder=[]; failedThumbnails={}
             words=[]; annotations=[]; textReady=false; needsText=true; needsRefinement=false; clearSelection()
@@ -301,7 +302,7 @@ Item {
             }
         }selectedText=text; highlights.requestPaint()
     }
-    function clearSelection() { anchor=-1; cursor=-1; selectedText=""; highlights.requestPaint() }
+    function clearSelection() { anchor=-1; cursor=-1; selectedText=""; visibleAnnotations=true; highlights.requestPaint(); changed() }
     function selectAll() { if (canCopy && words.length) {selectionStartPage=currentPage;selectionStartWord=0;anchor=0;cursor=words.length-1;updateSelection()} }
     function copySelection() { if (selectedText.length) Quickshell.clipboardText=selectedText }
     function saveAnnotation(kind,note) {
@@ -312,7 +313,7 @@ Item {
             if (last-first>=128) { auxiliaryError="Selecciona hasta 128 palabras para subrayar."; return false }
             for (let i=first;i<=last;i++) rects.push(words[i].rect)
         }
-        if (kind==="underline" && !rects.length) { auxiliaryError="Selecciona el texto de esta página para subrayar."; return false }
+        if ((kind==="underline" || kind==="remove_underline") && !rects.length) { auxiliaryError="Selecciona el texto de esta página para subrayar."; return false }
         if (kind==="note") rects=[rects.length ? rects[0] : [Math.min(24,originalWidth/4),Math.min(24,originalHeight/4),Math.min(20,originalWidth/4),Math.min(20,originalHeight/4)]]
         const request={op:"save",page:currentPage,annotation:kind,note:note,rects:rects,color:annotationColor}
         if (encodeURIComponent(JSON.stringify(request)).replace(/%[A-F\d]{2}/g,"x").length>14000) { auxiliaryError="La anotación es demasiado larga. Divide la selección o la nota."; return false }
@@ -420,14 +421,31 @@ Item {
                         const ctx = getContext("2d"); ctx.reset(); ctx.clearRect(0,0,canvasSize.width,canvasSize.height)
                         if (width <= 0 || height <= 0) return
                         ctx.scale(canvasSize.width/width, canvasSize.height/height)
+
+                        // Renderizado de coincidencias de búsqueda
                         ctx.fillStyle = Qt.rgba(page.highlightColor.r, page.highlightColor.g, page.highlightColor.b, 0.3)
                         ctx.strokeStyle = page.highlightColor; ctx.lineWidth = 2
                         for (let i = 0; i < page.matches.length; i++) if (page.matches[i].page === pageNum) {
                             const r = page.mapRect(page.matches[i].rect); ctx.fillRect(r.x, r.y, r.width, r.height)
                             if (i === page.matchIndex) ctx.strokeRect(r.x, r.y, r.width, r.height)
                         }
-                        if (page.anchor >= 0 && page.cursor >= 0 && page.currentPage === pageNum) for(let i = Math.min(page.anchor, page.cursor); i <= Math.max(page.anchor, page.cursor); i++) {
-                            const r = page.mapRect(page.words[i].rect); ctx.fillRect(r.x, r.y, r.width, r.height)
+
+                        // Renderizado de selección activa y subrayado (resaltado amarillo con contorno azul)
+                        if (page.visibleAnnotations && page.anchor >= 0 && page.cursor >= 0 && page.currentPage === pageNum) {
+                            const first = Math.min(page.anchor, page.cursor), last = Math.max(page.anchor, page.cursor)
+                            // 1. Relleno amarillo claro brillante
+                            ctx.fillStyle = "rgba(254, 240, 138, 0.65)"
+                            for (let i = first; i <= last; i++) {
+                                const r = page.mapRect(page.words[i].rect)
+                                ctx.fillRect(r.x, r.y, r.width, r.height)
+                            }
+                            // 2. Trazo continuo azul para delimitar la selección
+                            ctx.strokeStyle = "#3b82f6"
+                            ctx.lineWidth = 1.5
+                            for (let i = first; i <= last; i++) {
+                                const r = page.mapRect(page.words[i].rect)
+                                ctx.strokeRect(r.x, r.y, r.width, r.height)
+                            }
                         }
                     }
                     Connections {

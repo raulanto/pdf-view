@@ -24,3 +24,5 @@ Para anotar: selecciona palabras con clic izquierdo, elige un color en la cinta 
 La [documentación del proyecto](docs/README.md) contiene las guías de uso, arquitectura, desarrollo, seguridad, pruebas y empaquetado. Las instrucciones para agentes y colaboradores están en [AGENTS.md](AGENTS.md).
 
 Versión actual: **0.5.0**. Consulta [Empaquetado Arch](docs/empaquetado.md) para generar el paquete local y [Seguridad y límites](docs/seguridad.md) para conocer las protecciones y restricciones existentes.
+
+Para quitar una marca, selecciona una palabra subrayada y pulsa **quitar subrayado** en la cinta; se elimina la anotación completa y se guarda el PDF.

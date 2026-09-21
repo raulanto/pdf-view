@@ -15,6 +15,7 @@ ShellRoot {
         id: actions; parent: doc.parent; theme: testTheme; selectedColor: doc.annotationColor; canAnnotate: doc.canAnnotate
         onColorChosen: value => doc.annotationColor=value
         onUnderlineRequested: if (doc.saveAnnotation("underline","")) close()
+        onRemoveUnderlineRequested: if (doc.saveAnnotation("remove_underline","")) close()
         onCopyRequested: { doc.copySelection(); close() }
     }
     Connections {
@@ -61,6 +62,16 @@ ShellRoot {
             actionStep="persist color"
             verify(doc.annotations.some(a=>a.kind==="underline" && a.color==="#397ed0"),doc.auxiliaryError)
             verify(!actions.opened)
+            actionStep="remove underline"
+            doc.selectAll(); actions.showAt(Qt.point(300,200))
+            tryVerify(() => actions.opened)
+            const remove=findChild(actions.contentItem,"quickRemoveUnderline")
+            verify(remove!==null); mouseClick(remove,remove.width/2,remove.height/2)
+            tryVerify(() => !doc.busy && doc.textReady,20000)
+            verify(!doc.annotations.some(a=>a.kind==="underline"),doc.auxiliaryError)
+            doc.open(Quickshell.env("PDF_VIEW_DOCUMENT"))
+            tryVerify(() => !doc.busy && doc.textReady,20000)
+            verify(!doc.annotations.some(a=>a.kind==="underline"))
             testWindow.testingActions=false; actionStep=""
             checks++
         }

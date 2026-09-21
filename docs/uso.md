@@ -55,3 +55,7 @@ Se requiere PDFium, permiso de escritura en el archivo y en su carpeta. Esta ver
 Haz clic izquierdo sobre una palabra, o arrastra para seleccionar varias: al soltar aparece una cinta junto a la selección. Elige **ámbar, rojo, verde, azul, violeta o negro**, y pulsa **subrayar**, **+ nota** o **copiar**. Elegir un color no modifica el PDF; subrayar o guardar la nota sí lo hace. El color permanece en el PDF al reabrirlo y se conserva como elección durante la sesión del visor.
 
 La cinta también se abre con **anotar ▾** o **Ctrl+Shift+A** sobre una selección. Usa Tab para recorrer sus controles y Espacio para activarlos. Esc, un clic fuera o desplazar el documento la cierran. La paleta del diálogo de notas es la misma. En documentos sin permiso para anotar solo queda disponible copiar.
+
+### Quitar subrayados
+
+Selecciona con clic izquierdo texto subrayado y pulsa **quitar subrayado**. Se elimina del PDF cada subrayado que contiene alguna palabra seleccionada, aunque esa marca abarque más palabras. Las notas y otros subrayados quedan intactos. Si no hay marcas guardadas en la selección, se muestra un mensaje sin modificar el archivo.

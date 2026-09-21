@@ -587,7 +587,7 @@ impl<'a> PdfiumDocument<'a> {
 }
 
 use pdfium_render::prelude::{
-    PdfColor, PdfPageAnnotationCommon, PdfPoints, PdfQuadPoints, PdfRect,
+    PdfColor, PdfPageAnnotationCommon, PdfPageAnnotationType, PdfPoints, PdfQuadPoints, PdfRect,
     PdfSecurityHandlerRevision,
 };
 use serde_json::{json, Value};
@@ -673,7 +673,7 @@ pub fn export_annotation(engine: &Pdfium, v: &Value) -> Result<Vec<u8>> {
         serde_json::from_value(v["rects"].clone()).map_err(|_| "Selección inválida.")?;
     if number < 1
         || number > i64::from(document.0.pages().len())
-        || !["note", "underline"].contains(&kind)
+        || !["note", "underline", "remove_underline"].contains(&kind)
         || text.chars().count() > 4000
         || rects.is_empty()
         || rects.len() > 128
@@ -710,43 +710,86 @@ pub fn export_annotation(engine: &Pdfium, v: &Value) -> Result<Vec<u8>> {
                 PdfPoints::new((r.0 + r.2) as f32),
             )
         };
-        let result = (|| -> std::result::Result<(), pdfium_render::prelude::PdfiumError> {
-            if kind == "note" {
-                let r = bounds(rects[0]);
-                let mut a = page.annotations_mut().create_text_annotation(text)?;
-                a.set_position(r.left(), r.bottom())?;
-                a.set_width(PdfPoints::new(20.))?;
-                a.set_height(PdfPoints::new(20.))?;
-                a.set_stroke_color(ink)?;
-            } else {
-                let union = rects.iter().copied().reduce(|a, b| a.union(b)).unwrap();
-                let r = bounds(union);
-                let mut a = page.annotations_mut().create_underline_annotation()?;
-                a.set_position(r.left(), r.bottom())?;
-                a.set_width(r.width())?;
-                a.set_height(r.height())?;
-                a.set_stroke_color(ink)?;
-                for rect in rects {
-                    let r = bounds(rect);
-                    // Text markup uses Z order (top-left, top-right, bottom-left,
-                    // bottom-right), not PdfRect's counter-clockwise polygon order.
-                    let quad = PdfQuadPoints::new(
-                        r.left(),
-                        r.top(),
-                        r.right(),
-                        r.top(),
-                        r.left(),
-                        r.bottom(),
-                        r.right(),
-                        r.bottom(),
-                    );
-                    a.attachment_points_mut()
-                        .create_attachment_point_at_end(quad)?;
+        if kind == "remove_underline" {
+            let annotations = page.annotations_mut();
+            if annotations.len() > 256 {
+                return Err("La página supera el límite de 256 anotaciones para borrar.".into());
+            }
+            let mut removed = false;
+            // Delete backwards so remaining annotation indices stay valid.
+            for index in (0..annotations.len()).rev() {
+                let annotation = annotations.get(index).map_err(|_| "Anotación inválida.")?;
+                if annotation.annotation_type() != PdfPageAnnotationType::Underline {
+                    continue;
+                }
+                let points = annotation.attachment_points();
+                if points.len() > 128 {
+                    return Err("El subrayado supera 128 segmentos.".into());
+                }
+                let mut matches = false;
+                for point in 0..points.len() {
+                    let area = points
+                        .get(point)
+                        .map_err(|_| "Geometría de subrayado inválida.")?
+                        .to_rect();
+                    matches |= rects.iter().any(|r| {
+                        let x = (r.0 + r.2 / 2.) as f32;
+                        let y = (h - r.1 - r.3 / 2.) as f32;
+                        x >= area.left().value
+                            && x <= area.right().value
+                            && y >= area.bottom().value
+                            && y <= area.top().value
+                    });
+                }
+                if matches {
+                    annotations
+                        .delete_annotation(annotation)
+                        .map_err(|_| "No se pudo quitar el subrayado.")?;
+                    removed = true;
                 }
             }
-            Ok(())
-        })();
-        result.map_err(|_| "No se pudo crear la anotación.")?;
+            if !removed {
+                return Err("No hay subrayados guardados en la selección.".into());
+            }
+        } else {
+            let result = (|| -> std::result::Result<(), pdfium_render::prelude::PdfiumError> {
+                if kind == "note" {
+                    let r = bounds(rects[0]);
+                    let mut a = page.annotations_mut().create_text_annotation(text)?;
+                    a.set_position(r.left(), r.bottom())?;
+                    a.set_width(PdfPoints::new(20.))?;
+                    a.set_height(PdfPoints::new(20.))?;
+                    a.set_stroke_color(ink)?;
+                } else {
+                    let union = rects.iter().copied().reduce(|a, b| a.union(b)).unwrap();
+                    let r = bounds(union);
+                    let mut a = page.annotations_mut().create_underline_annotation()?;
+                    a.set_position(r.left(), r.bottom())?;
+                    a.set_width(r.width())?;
+                    a.set_height(r.height())?;
+                    a.set_stroke_color(ink)?;
+                    for rect in rects {
+                        let r = bounds(rect);
+                        // Text markup uses Z order (top-left, top-right, bottom-left,
+                        // bottom-right), not PdfRect's counter-clockwise polygon order.
+                        let quad = PdfQuadPoints::new(
+                            r.left(),
+                            r.top(),
+                            r.right(),
+                            r.top(),
+                            r.left(),
+                            r.bottom(),
+                            r.right(),
+                            r.bottom(),
+                        );
+                        a.attachment_points_mut()
+                            .create_attachment_point_at_end(quad)?;
+                    }
+                }
+                Ok(())
+            })();
+            result.map_err(|_| "No se pudo crear la anotación.")?;
+        }
     }
     struct BoundedPdf(Vec<u8>);
     impl std::io::Write for BoundedPdf {
