@@ -18,7 +18,7 @@ RowLayout {
         id: query
         theme: root.theme
         Layout.fillWidth: true
-        placeholderText: "Buscar en el documento…"
+        placeholderText: root.window.i18n ? root.window.i18n.tr("search.placeholder") : "Buscar en el documento…"
         maximumLength: 256
         onTextEdited: { root.page.search(""); searchDelay.restart() }
         onAccepted: { searchDelay.stop(); root.page.search(text) }

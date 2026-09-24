@@ -20,7 +20,7 @@ Rectangle {
         spacing: 8
         ThemedLabel { theme: root.theme; text: "▸ pdf-view"; color: root.theme.colors.accent; font.bold: true }
         ThemedLabel { theme: root.theme; Layout.fillWidth: true; text: root.window.documentPath || "~/"; opacity: 0.8; elide: Text.ElideMiddle }
-        ThemedCommand { theme: root.theme; text: "configurar"; enabled: !root.window.document.saving; onClicked: root.window.showSettings() }
-        ThemedCommand { theme: root.theme; text: "["+root.window.preferences.key("open","Ctrl+O")+"] abrir"; onClicked: root.picker.open() }
+        ThemedCommand { theme: root.theme; text: root.window.i18n ? root.window.i18n.tr("app.configure") : "configurar"; enabled: !root.window.document.saving; onClicked: root.window.showSettings() }
+        ThemedCommand { theme: root.theme; text: "["+root.window.preferences.key("open","Ctrl+O")+"] " + (root.window.i18n ? root.window.i18n.tr("app.open") : "abrir"); onClicked: root.picker.open() }
     }
 }

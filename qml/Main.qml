@@ -23,11 +23,17 @@ FloatingWindow {
     property bool focusMode: false
     property string sidebarMode: "pages"
     readonly property bool commandsEnabled: !settingsDialog.visible && !picker.visible && !passwordDialog.visible && !rangeDialog.visible && !notesDialog.visible && !page.saving && !sidebarPanel.ocrLanguageField.activeFocus && !searchBar.searchField.activeFocus && !toolbarPanel.pageInputField.activeFocus
-    readonly property string documentName: documentPath.split("/").pop() || "sin documento"
+    readonly property string documentName: documentPath.split("/").pop() || (i18n ? i18n.tr("app.noDocument") : "sin documento")
     readonly property alias preferences: preferences
     readonly property alias settingsDialog: settingsDialog
+    readonly property alias i18n: i18n
+    I18n {
+        id: i18n
+        appLanguage: preferences.value("appLanguage", "auto")
+    }
     Preferences {
         id: preferences
+        i18n: window.i18n
         onApplied: {
             viewport.fitMode=value("fit","page"); viewport.zoom=value("zoom",100)/100
             page.ocrLanguage=value("language","eng"); page.ocrEnabled=value("ocr",false)
@@ -36,7 +42,7 @@ FloatingWindow {
     }
     Theme { id: theme; uiScale: preferences.value("uiScale",100)/100 }
     function showSettings() { if (!preferences.ready || preferences.busy || page.saving) return; selectionToolbar.close(); settingsDialog.open() }
-    SettingsDialog { id: settingsDialog; theme: window.theme; preferences: window.preferences; canvasItem: canvas }
+    SettingsDialog { id: settingsDialog; theme: window.theme; preferences: window.preferences; canvasItem: canvas; i18n: window.i18n }
     Shortcut { sequence: preferences.key("settings","Ctrl+,"); enabled: window.commandsEnabled; onActivated: window.showSettings() }
     onClosed: { if (page.saving) visible=true; else Qt.quit() }
     title: documentPath ? documentName + " — pdf-view" : "pdf-view"
@@ -48,7 +54,7 @@ FloatingWindow {
 
     function openDocument(file) {
         selectionToolbar.close()
-        if (page.saving) { openingError="Espera a que termine el guardado."; return }
+        if (page.saving) { openingError=i18n ? i18n.tr("main.waitSave") : "Espera a que termine el guardado."; return }
         wheelScroll.stop()
         openingError = ""
         searchVisible = false
@@ -69,6 +75,7 @@ FloatingWindow {
     SelectionToolbar {
         id: selectionToolbar; parent: canvas
         theme: window.theme; selectedColor: page.annotationColor
+        i18n: window.i18n
         canAnnotate: page.canAnnotate && !page.saving
         onColorChosen: value => page.annotationColor=value
         onUnderlineRequested: if (page.saveAnnotation("underline","")) close()
@@ -78,12 +85,13 @@ FloatingWindow {
     }
     Shortcut { sequence: preferences.key("annotate","Ctrl+Shift+A"); enabled: window.commandsEnabled && page.anchor>=0; onActivated: window.showSelectionTools() }
 
-    NotesDialog { id: notesDialog; theme: window.theme; page: page; canvasItem: canvas }
+    NotesDialog { id: notesDialog; theme: window.theme; page: page; canvasItem: canvas; i18n: window.i18n }
     PasswordDialog {
         id: passwordDialog
         theme: window.theme
         page: page
         canvasItem: canvas
+        i18n: window.i18n
     }
 
     RangeDialog {
@@ -91,6 +99,7 @@ FloatingWindow {
         theme: window.theme
         page: page
         canvasItem: canvas
+        i18n: window.i18n
     }
 
     Connections {
@@ -141,6 +150,7 @@ FloatingWindow {
         id: picker
         parent: canvas
         colors: theme.colors
+        i18n: window.i18n
         onSelected: file => window.openDocument(file)
     }
     Shortcut { sequence: preferences.key("open","Ctrl+O"); enabled: !settingsDialog.visible && !notesDialog.visible && !page.saving; onActivated: picker.open() }
@@ -157,7 +167,7 @@ FloatingWindow {
             onDropped: drop => {
                 if (drop.hasUrls && drop.urls.length === 1 && drop.urls[0].toString().startsWith("file:")) {
                     window.openDocument(drop.urls[0]); drop.acceptProposedAction()
-                } else window.openingError = "Arrastra un único archivo PDF local."
+                } else window.openingError = i18n ? i18n.tr("main.dragSinglePdf") : "Arrastra un único archivo PDF local."
             }
         }
 
@@ -288,16 +298,26 @@ FloatingWindow {
                             width: Math.min(parent.width - 32, 420)
                             spacing: 12
                             visible: !page.hasPage && !page.busy
-                            ThemedLabel { theme: window.theme; text: page.busy ? "[ … ] cargando" : (page.error ? "[ ! ] error de apertura" : "[ pdf-view ]"); color: page.error ? theme.colors.error : theme.colors.accent }
+                            ThemedLabel {
+                                theme: window.theme
+                                text: page.busy
+                                      ? (i18n ? i18n.tr("main.loading") : "[ … ] cargando")
+                                      : (page.error
+                                         ? (i18n ? i18n.tr("main.errorOpen") : "[ ! ] error de apertura")
+                                         : "[ pdf-view ]")
+                                color: page.error ? theme.colors.error : theme.colors.accent
+                            }
                             ThemedLabel {
                                 theme: window.theme
                                 width: parent.width
-                                text: page.error || (page.busy ? "Preparando la página…" : "Abre o arrastra un documento.\n"+preferences.key("open","Ctrl+O")+"  ·  seleccionar PDF")
+                                text: page.error || (page.busy
+                                      ? (i18n ? i18n.tr("main.preparingPage") : "Preparando la página…")
+                                      : (i18n ? i18n.tr("main.openOrDrag", preferences.key("open","Ctrl+O")) : ("Abre o arrastra un documento.\n"+preferences.key("open","Ctrl+O")+"  ·  seleccionar PDF")))
                                 wrapMode: Text.WordWrap
                                 elide: Text.ElideNone
                                 opacity: 0.8
                             }
-                            ThemedCommand { theme: window.theme; visible: page.passwordRequired; text: "Introducir contraseña"; onClicked: passwordDialog.open() }
+                            ThemedCommand { theme: window.theme; visible: page.passwordRequired; text: i18n ? i18n.tr("main.enterPassword") : "Introducir contraseña"; onClicked: passwordDialog.open() }
                         }
                     }
                 }

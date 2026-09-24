@@ -8,6 +8,7 @@ Dialog {
     required property var theme
     required property var page
     required property var canvasItem
+    property var i18n
     readonly property alias noteEditor: draft
     readonly property alias saveButton: saveNote
     Connections { target: dialog.page; function onAnnotationSaved() { draft.text=""; dialog.close() } }
@@ -18,7 +19,7 @@ Dialog {
     x: (canvasItem.width-width)/2; y: (canvasItem.height-height)/2
     font.family: "monospace"
     background: Rectangle { color: theme.colors.background; border.color: theme.colors.border }
-    header: ThemedLabel { theme: dialog.theme; text: "[ notas · página " + dialog.page.currentPage + " ]"; padding: 12 }
+    header: ThemedLabel { theme: dialog.theme; text: dialog.i18n ? dialog.i18n.tr("notes.header", dialog.page.currentPage) : ("[ notas · página " + dialog.page.currentPage + " ]"); padding: 12 }
     onOpened: { draft.text=""; page.auxiliaryError=""; if (page.canAnnotate) draft.forceActiveFocus() }
     contentItem: ColumnLayout {
         spacing: 10
@@ -33,7 +34,12 @@ Dialog {
             }
             ScrollBar.vertical: ScrollBar {}
         }
-        ThemedLabel { theme: dialog.theme; Layout.fillWidth: true; wrapMode: Text.Wrap; text: dialog.page.canAnnotate ? "Escribe una nota. Se guardará dentro del PDF abierto." : "Las notas requieren PDFium y un PDF sin protección ni firma." }
+        ThemedLabel {
+            theme: dialog.theme; Layout.fillWidth: true; wrapMode: Text.Wrap
+            text: dialog.page.canAnnotate
+                  ? (dialog.i18n ? dialog.i18n.tr("notes.infoAnnotate") : "Escribe una nota. Se guardará dentro del PDF abierto.")
+                  : (dialog.i18n ? dialog.i18n.tr("notes.infoNoAnnotate") : "Las notas requieren PDFium y un PDF sin protección ni firma.")
+        }
         AnnotationColors { theme: dialog.theme; selectedColor: dialog.page.annotationColor; visible: dialog.page.canAnnotate; onColorChosen: value => dialog.page.annotationColor=value }
         ScrollView {
             Layout.fillWidth: true; Layout.preferredHeight: 120
@@ -43,16 +49,16 @@ Dialog {
                 font.family: "monospace"; color: dialog.theme.colors.foreground
                 selectionColor: dialog.theme.colors.selection
                 wrapMode: TextEdit.Wrap; textFormat: TextEdit.PlainText
-                placeholderText: "Nota sobre la selección o esta página…"
+                placeholderText: dialog.i18n ? dialog.i18n.tr("notes.placeholder") : "Nota sobre la selección o esta página…"
                 background: Rectangle { color: dialog.theme.colors.surface; border.color: dialog.theme.colors.border }
-                Accessible.name: "Texto de la nota"
+                Accessible.name: dialog.i18n ? dialog.i18n.tr("notes.accessibleText") : "Texto de la nota"
             }
         }
         ThemedLabel { theme: dialog.theme; Layout.fillWidth: true; wrapMode: Text.Wrap; text: dialog.page.auxiliaryError; visible: text.length>0; color: dialog.theme.colors.error }
         RowLayout {
             Layout.alignment: Qt.AlignRight
-            ThemedCommand { theme: dialog.theme; text: "cerrar"; enabled: !dialog.page.saving; onClicked: dialog.close() }
-            ThemedCommand { id: saveNote; theme: dialog.theme; text: "guardar nota"; enabled: dialog.page.canAnnotate && draft.text.trim().length>0 && draft.text.length<=4000 && !dialog.page.saving; onClicked: dialog.page.saveAnnotation("note",draft.text) }
+            ThemedCommand { theme: dialog.theme; text: dialog.i18n ? dialog.i18n.tr("notes.close") : "cerrar"; enabled: !dialog.page.saving; onClicked: dialog.close() }
+            ThemedCommand { id: saveNote; theme: dialog.theme; text: dialog.i18n ? dialog.i18n.tr("notes.save") : "guardar nota"; enabled: dialog.page.canAnnotate && draft.text.trim().length>0 && draft.text.length<=4000 && !dialog.page.saving; onClicked: dialog.page.saveAnnotation("note",draft.text) }
         }
     }
 }

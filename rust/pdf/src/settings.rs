@@ -33,7 +33,7 @@ fn defaults() -> Value {
         .map(|(id, _, key)| (id.to_string(), json!(key)))
         .collect();
     json!({"fit":"page","zoom":100,"smooth":true,"scrollStep":100,"uiScale":100,
-        "ocr":false,"language":"eng","color":"#e69600","selectionToolbar":true,"sidebar":true,"keys":keys})
+        "ocr":false,"language":"eng","color":"#e69600","selectionToolbar":true,"sidebar":true,"keys":keys,"appLanguage":"auto"})
 }
 fn canonical_key(input: &str) -> Result<String, String> {
     if input.is_empty() || input.len() > 48 {
@@ -103,6 +103,13 @@ fn canonical_key(input: &str) -> Result<String, String> {
 }
 fn validate(mut value: Value) -> Result<Value, String> {
     let base = defaults();
+    if let Some(obj) = value.as_object_mut() {
+        for (k, v) in base.as_object().unwrap() {
+            if !obj.contains_key(k) {
+                obj.insert(k.clone(), v.clone());
+            }
+        }
+    }
     if value
         .as_object()
         .is_none_or(|v| v.len() != base.as_object().unwrap().len())
@@ -130,8 +137,9 @@ fn validate(mut value: Value) -> Result<Value, String> {
     }
     if !["page", "width", "manual"].contains(&value["fit"].as_str().unwrap_or(""))
         || !pdf_view_backend::language_valid(value["language"].as_str().unwrap_or(""))
+        || !["auto", "es", "en"].contains(&value["appLanguage"].as_str().unwrap_or(""))
     {
-        return Err("Ajuste o idioma OCR inválido.".into());
+        return Err("Ajuste, idioma OCR o idioma de aplicación inválido.".into());
     }
     pdf_view_backend::annotation_rgb(value["color"].as_str().unwrap_or(""))?;
     let keys = value["keys"].as_object_mut().ok_or("Atajos inválidos.")?;

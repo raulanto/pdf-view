@@ -5,6 +5,7 @@ import QtQuick.Layouts
 Popup {
     id: toolbar
     required property var theme
+    property var i18n
     property string selectedColor: "#e69600"
     property bool canAnnotate: false
     signal colorChosen(string value)
@@ -60,22 +61,23 @@ Popup {
         // Paleta de color: cuadros de texto uniforme estilo terminal
         Repeater {
             model: [
-                { name: "Ámbar",   value: "#e69600", fg: "#000000" },
-                { name: "Rojo",    value: "#dc4c64", fg: "#ffffff" },
-                { name: "Verde",   value: "#2a9968", fg: "#ffffff" },
-                { name: "Azul",    value: "#397ed0", fg: "#ffffff" },
-                { name: "Violeta", value: "#9561c9", fg: "#ffffff" },
+                { id: "Amber",  nameEs: "Ámbar",   nameEn: "Amber",   value: "#e69600", fg: "#000000" },
+                { id: "Red",    nameEs: "Rojo",    nameEn: "Red",     value: "#dc4c64", fg: "#ffffff" },
+                { id: "Green",  nameEs: "Verde",   nameEn: "Green",   value: "#2a9968", fg: "#ffffff" },
+                { id: "Blue",   nameEs: "Azul",    nameEn: "Blue",    value: "#397ed0", fg: "#ffffff" },
+                { id: "Purple", nameEs: "Violeta", nameEn: "Purple",  value: "#9561c9", fg: "#ffffff" },
             ]
             delegate: AbstractButton {
                 required property var modelData
                 objectName: "ink"+modelData.value.substring(1)
                 property bool sel: toolbar.selectedColor === modelData.value
                 readonly property int sz: Math.round(14 * toolbar.theme.scale)
+                readonly property string displayName: toolbar.i18n ? toolbar.i18n.tr("selection.color" + modelData.id) : modelData.nameEs
                 implicitWidth:  sz + Math.round(4 * toolbar.theme.scale)
                 implicitHeight: implicitWidth
                 enabled: toolbar.canAnnotate
-                Accessible.name: "Color " + modelData.name
-                ToolTip.visible: hovered; ToolTip.text: modelData.name
+                Accessible.name: toolbar.i18n ? toolbar.i18n.tr("selection.colorName", displayName) : ("Color " + displayName)
+                ToolTip.visible: hovered; ToolTip.text: displayName
                 onClicked: toolbar.colorChosen(modelData.value)
                 background: null
                 contentItem: Rectangle {
@@ -105,21 +107,28 @@ Popup {
         }
 
         Cmd {
-            objectName: "quickUnderline"; theme: toolbar.theme; text: "subrayar"
+            objectName: "quickUnderline"; theme: toolbar.theme
+            text: toolbar.i18n ? toolbar.i18n.tr("selection.underline") : "subrayar"
             enabled: toolbar.canAnnotate
             onClicked: toolbar.underlineRequested()
         }
         Cmd {
-            objectName: "quickRemoveUnderline"; theme: toolbar.theme; text: "desmarcar"; dim: true
+            objectName: "quickRemoveUnderline"; theme: toolbar.theme
+            text: toolbar.i18n ? toolbar.i18n.tr("selection.clear") : "desmarcar"; dim: true
             enabled: toolbar.canAnnotate
             onClicked: toolbar.removeUnderlineRequested()
         }
         Cmd {
-            objectName: "quickNote"; theme: toolbar.theme; text: "+ nota"
+            objectName: "quickNote"; theme: toolbar.theme
+            text: toolbar.i18n ? toolbar.i18n.tr("selection.addNote") : "+ nota"
             enabled: toolbar.canAnnotate
             onClicked: toolbar.noteRequested()
         }
-        Cmd { objectName: "quickCopy"; theme: toolbar.theme; text: "copiar"; dim: true; onClicked: toolbar.copyRequested() }
+        Cmd {
+            objectName: "quickCopy"; theme: toolbar.theme
+            text: toolbar.i18n ? toolbar.i18n.tr("selection.copy") : "copiar"; dim: true
+            onClicked: toolbar.copyRequested()
+        }
 
         // Separador + cierre
         Rectangle {
@@ -130,7 +139,7 @@ Popup {
         }
         Cmd {
             theme: toolbar.theme; text: "×"; dim: true
-            Accessible.name: "Cerrar"
+            Accessible.name: toolbar.i18n ? toolbar.i18n.tr("selection.close") : "Cerrar"
             onClicked: toolbar.close()
         }
     }

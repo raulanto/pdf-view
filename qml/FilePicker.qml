@@ -7,8 +7,9 @@ import Quickshell
 Dialog {
     id: picker
     required property var colors
+    property var i18n
     signal selected(url file)
-    title: "[ abrir documento ]"
+    title: picker.i18n ? picker.i18n.tr("app.openTitle") : "[ abrir documento ]"
     font.family: "monospace"
     font.pixelSize: 12
     padding: 12
@@ -39,7 +40,7 @@ Dialog {
         spacing: 6
         RowLayout {
             Layout.fillWidth: true
-            Button { text: "[..]"; flat: true; Accessible.name: "Carpeta superior"; onClicked: files.folder = files.parentFolder }
+            Button { text: "[..]"; flat: true; Accessible.name: picker.i18n ? picker.i18n.tr("picker.parentFolder") : "Carpeta superior"; onClicked: files.folder = files.parentFolder }
             Text { Layout.fillWidth: true; text: decodeURIComponent(files.folder.toString().replace(/^file:\/\//, "")); font.family: "monospace"; font.pixelSize: 12; elide: Text.ElideMiddle; color: picker.colors.foreground }
         }
         ListView {
@@ -69,7 +70,7 @@ Dialog {
                     else { picker.selected(fileUrl); picker.close() }
                 }
             }
-            Text { anchors.centerIn: parent; visible: files.count === 0; text: "[ sin documentos PDF ]"; font.family: "monospace"; font.pixelSize: 12; color: picker.colors.foreground }
+            Text { anchors.centerIn: parent; visible: files.count === 0; text: picker.i18n ? picker.i18n.tr("picker.noPdfs") : "[ sin documentos PDF ]"; font.family: "monospace"; font.pixelSize: 12; color: picker.colors.foreground }
         }
     }
 }

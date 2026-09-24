@@ -4,6 +4,7 @@ import Quickshell.Io
 
 QtObject {
     id: preferences
+    property var i18n
     property var values: ({})
     property var defaults: ({})
     property var actions: []
@@ -25,7 +26,7 @@ QtObject {
         stdinEnabled: true
         running: command[0].length>0
         onStarted: { preferences.ready=true; preferences.request("load",null) }
-        onExited: { preferences.ready=false; preferences.busy=false; preferences.error="El servicio de configuración terminó. Vuelve a abrir el visor." }
+        onExited: { preferences.ready=false; preferences.busy=false; preferences.error=preferences.i18n ? preferences.i18n.tr("pref.errorExited") : "El servicio de configuración terminó. Vuelve a abrir el visor." }
         stdout: SplitParser {
             onRead: line => {
                 try {
@@ -41,7 +42,7 @@ QtObject {
                     const wasLoaded=!!preferences.values.keys
                     preferences.values=response.data.settings; preferences.applied()
                     if (wasLoaded) preferences.saved()
-                } catch (e) { preferences.busy=false; preferences.error="No se pudo leer la configuración." }
+                } catch (e) { preferences.busy=false; preferences.error=preferences.i18n ? preferences.i18n.tr("pref.errorRead") : "No se pudo leer la configuración." }
             }
         }
     }
