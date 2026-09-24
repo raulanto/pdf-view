@@ -605,6 +605,37 @@ impl PdfiumDocument<'_> {
     }
 }
 impl Page {
+    fn annotation_color(&self, index: usize) -> Result<PdfColor> {
+        // SAFETY: the mapping owns each annotation; color is separately allocated
+        // by Poppler and released before the mapping, including early returns.
+        unsafe {
+            let mappings = Owned(
+                poppler_page_get_annot_mapping(self.0 .0).cast(),
+                poppler_page_free_annot_mapping,
+            );
+            let mut node = mappings.0.cast::<List>();
+            for _ in 0..index {
+                if node.is_null() {
+                    return Err("Anotación inválida.".into());
+                }
+                node = (*node).next;
+            }
+            if node.is_null() {
+                return Err("Anotación inválida.".into());
+            }
+            let mapping = &*((*node).data.cast::<AnnotMapping>());
+            let color = Owned(
+                poppler_annot_get_color(mapping.annot).cast(),
+                poppler_color_free,
+            );
+            if color.0.is_null() {
+                return Ok(PdfColor::BLACK);
+            }
+            let c = &*color.0.cast::<Color>();
+            let [r, g, b] = [c.red, c.green, c.blue].map(|v| ((u32::from(v) + 128) / 257) as u8);
+            Ok(PdfColor::new(r, g, b, 255))
+        }
+    }
     pub fn annotations(&self) -> Result<Vec<Value>> {
         let (_, height) = self.size()?;
         let mut notes = Vec::new();
@@ -711,6 +742,8 @@ pub fn export_annotation(engine: &Pdfium, v: &Value) -> Result<Vec<u8>> {
             )
         };
         if kind == "remove_underline" {
+            let source = Document::open(v["password"].as_str().unwrap_or(""))?;
+            let source_page = source.page(number as i32)?;
             let annotations = page.annotations_mut();
             if annotations.len() > 256 {
                 return Err("La página supera el límite de 256 anotaciones para borrar.".into());
@@ -726,25 +759,108 @@ pub fn export_annotation(engine: &Pdfium, v: &Value) -> Result<Vec<u8>> {
                 if points.len() > 128 {
                     return Err("El subrayado supera 128 segmentos.".into());
                 }
-                let mut matches = false;
+                let mut changed = false;
+                let mut remaining = Vec::new();
                 for point in 0..points.len() {
                     let area = points
                         .get(point)
                         .map_err(|_| "Geometría de subrayado inválida.")?
                         .to_rect();
-                    matches |= rects.iter().any(|r| {
-                        let x = (r.0 + r.2 / 2.) as f32;
-                        let y = (h - r.1 - r.3 / 2.) as f32;
-                        x >= area.left().value
-                            && x <= area.right().value
-                            && y >= area.bottom().value
-                            && y <= area.top().value
-                    });
+                    let mut pieces = vec![area];
+                    for r in &rects {
+                        let cut = bounds(*r);
+                        let cy = (cut.bottom().value + cut.top().value) / 2.;
+                        let mut next = Vec::new();
+                        for piece in pieces {
+                            if cy < piece.bottom().value
+                                || cy > piece.top().value
+                                || cut.right().value <= piece.left().value
+                                || cut.left().value >= piece.right().value
+                            {
+                                next.push(piece);
+                                continue;
+                            }
+                            changed = true;
+                            if cut.left().value - piece.left().value > 0.1 {
+                                next.push(PdfRect::new(
+                                    piece.bottom(),
+                                    piece.left(),
+                                    piece.top(),
+                                    cut.left(),
+                                ));
+                            }
+                            if piece.right().value - cut.right().value > 0.1 {
+                                next.push(PdfRect::new(
+                                    piece.bottom(),
+                                    cut.right(),
+                                    piece.top(),
+                                    piece.right(),
+                                ));
+                            }
+                        }
+                        pieces = next;
+                    }
+                    remaining.extend(pieces);
+                    if remaining.len() > 128 {
+                        return Err("La selección produciría más de 128 segmentos.".into());
+                    }
                 }
-                if matches {
+                if changed {
+                    let color = source_page.annotation_color(index)?;
+                    let contents = annotation.contents();
+                    let creator = annotation.creator();
                     annotations
                         .delete_annotation(annotation)
                         .map_err(|_| "No se pudo quitar el subrayado.")?;
+                    if !remaining.is_empty() {
+                        let result =
+                            (|| -> std::result::Result<(), pdfium_render::prelude::PdfiumError> {
+                                let mut replacement = annotations.create_underline_annotation()?;
+                                let left = remaining
+                                    .iter()
+                                    .map(|r| r.left().value)
+                                    .fold(f32::INFINITY, f32::min);
+                                let right = remaining
+                                    .iter()
+                                    .map(|r| r.right().value)
+                                    .fold(f32::NEG_INFINITY, f32::max);
+                                let bottom = remaining
+                                    .iter()
+                                    .map(|r| r.bottom().value)
+                                    .fold(f32::INFINITY, f32::min);
+                                let top = remaining
+                                    .iter()
+                                    .map(|r| r.top().value)
+                                    .fold(f32::NEG_INFINITY, f32::max);
+                                replacement
+                                    .set_position(PdfPoints::new(left), PdfPoints::new(bottom))?;
+                                replacement.set_width(PdfPoints::new(right - left))?;
+                                replacement.set_height(PdfPoints::new(top - bottom))?;
+                                replacement.set_stroke_color(color)?;
+                                if let Some(text) = contents {
+                                    replacement.set_contents(&text)?;
+                                }
+                                if let Some(name) = creator {
+                                    replacement.set_creator(&name)?;
+                                }
+                                for r in remaining {
+                                    replacement
+                                        .attachment_points_mut()
+                                        .create_attachment_point_at_end(PdfQuadPoints::new(
+                                            r.left(),
+                                            r.top(),
+                                            r.right(),
+                                            r.top(),
+                                            r.left(),
+                                            r.bottom(),
+                                            r.right(),
+                                            r.bottom(),
+                                        ))?;
+                                }
+                                Ok(())
+                            })();
+                        result.map_err(|_| "No se pudo conservar el resto del subrayado.")?;
+                    }
                     removed = true;
                 }
             }

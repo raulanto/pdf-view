@@ -15,7 +15,7 @@ Rectangle {
     readonly property alias ocrLanguageField: ocrLanguage
 
     Layout.preferredWidth: window.width < 720 ? 148 : 210
-    visible: !window.focusMode
+    visible: !window.focusMode && window.preferences.value("sidebar",true)
     Layout.fillHeight: true
     color: theme.colors.background
 

@@ -75,4 +75,8 @@ Poppler lee los metadatos y colores de anotaciones desde la página ya abierta. 
 
 Los QuadPoints de subrayado se escriben en orden Z: superior izquierdo, superior derecho, inferior izquierdo, inferior derecho. No se usa la conversión genérica de rectángulo a polígono, cuyo orden antihorario producía marcas casi invisibles en PDFium.
 
-`save` admite `annotation: "remove_underline"` con los rectángulos de la selección. El worker coteja los centros de las palabras con los QuadPoints y elimina las anotaciones Underline coincidentes en orden inverso. Se procesa solo la página pedida, con un máximo de 256 anotaciones y 128 segmentos por subrayado; el guardado usa la misma exportación validada y sustitución atómica.
+`save` admite `annotation: "remove_underline"` con los rectángulos de la selección. El worker recorta horizontalmente los QuadPoints de las palabras seleccionadas y reconstruye solo las marcas afectadas, conservando su color, texto y autor. Si no quedan segmentos, elimina la anotación. Se procesa solo la página pedida, con un máximo de 256 anotaciones y 128 segmentos por subrayado; el guardado usa la misma exportación validada y sustitución atómica.
+
+## Preferencias
+
+`pdf-view-backend --settings` ejecuta un modo independiente sin abrir documentos ni lanzar workers. `settings.rs` valida los rangos y atajos, lee JSON limitado a 16 KiB y guarda con archivo exclusivo, sincronización y reemplazo atómico. `Preferences.qml` correlaciona las respuestas por ID; `SettingsDialog.qml` edita un borrador. `Main.qml` aplica únicamente los valores confirmados y enlaza los atajos a esta fuente de estado. El protocolo utiliza JSON por líneas con `load` y `save`, y devuelve valores iniciales y el catálogo de acciones para el formulario. No hay nuevos ejecutables ni dependencias.

@@ -30,6 +30,7 @@ La aplicación permite lectura y **notas y subrayados persistentes**, guardados 
 | `qml/PdfPage.qml` | Presentación de páginas, interacción con texto y cliente IPC |
 | `qml/Theme.qml` | Cliente del servicio de temas |
 | `rust/pdf/src/main.rs` | `pdf-view-backend`: apertura, descriptores, Bubblewrap, cancelación, caché y validación de respuestas |
+| `rust/pdf/src/settings.rs` | Modo `--settings`: preferencias locales y validación de atajos, sin workers PDF |
 | `rust/pdf/src/save.rs` | Escritura atómica del PDF, validación de fragmentos y detección de cambios externos |
 | `rust/pdf/src/worker.rs` | `pdf-worker`: ejecución de operaciones PDF/OCR y límites de recursos |
 | `rust/pdf/src/native.rs` | Frontera FFI con PDFium, Poppler GLib, Cairo y Tesseract y gestión de sus recursos |
@@ -137,7 +138,7 @@ ctest --test-dir build --output-on-failure
 PDF_VIEW_TEST_THEME=1 ./scripts/smoke.sh
 ```
 
-CTest incluye `theme-unit`, `pdf-unit`, `theme-reload` e `integration`. La integración necesita namespaces de Bubblewrap; las pruebas de contraseñas y permisos de copia requieren `qpdf` y se omiten si falta. No presentes una prueba omitida como ejecutada.
+CTest incluye `theme-unit`, `pdf-unit`, `theme-reload` `settings` e `integration`. La integración necesita namespaces de Bubblewrap; las pruebas de contraseñas y permisos de copia requieren `qpdf` y se omiten si falta. No presentes una prueba omitida como ejecutada.
 
 Las pruebas visuales necesitan una sesión Wayland y módulos Qt Test disponibles; el modo de tema también usa el tema Tokyo Night de Omarchy. Se ejecutan dentro de Quickshell, que registra sus propios módulos; no presupongas que `qmltestrunner` puede cargarlos por separado. Los scripts abren ventanas temporales y guardan capturas/registros en `build/`.
 

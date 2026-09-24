@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 project_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+settings_test_dir="$(mktemp -d "$project_dir/build/settings-test-XXXXXX")"
+trap 'rm -rf -- "$settings_test_dir"' EXIT
+export PDF_VIEW_SETTINGS_FILE="$settings_test_dir/settings.json"
 export PDF_VIEW_TEST_FIXTURE="$project_dir/build/smoke.pdf"
 ctest --test-dir "$project_dir/build" --output-on-failure
 export PDF_VIEW_THEME_HELPER="$project_dir/build/rust/release/pdf-view-theme"

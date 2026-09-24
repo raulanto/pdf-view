@@ -25,4 +25,6 @@ La [documentación del proyecto](docs/README.md) contiene las guías de uso, arq
 
 Versión actual: **0.5.0**. Consulta [Empaquetado Arch](docs/empaquetado.md) para generar el paquete local y [Seguridad y límites](docs/seguridad.md) para conocer las protecciones y restricciones existentes.
 
-Para quitar una marca, selecciona una palabra subrayada y pulsa **quitar subrayado** en la cinta; se elimina la anotación completa y se guarda el PDF.
+Para quitar una marca, selecciona una palabra subrayada y pulsa **quitar subrayado** en la cinta; se quita únicamente el tramo seleccionado y se guarda el PDF.
+
+Abre **configurar** o pulsa **Ctrl+,** para ajustar lectura, escala, OCR, anotaciones y atajos. Las preferencias se guardan entre sesiones; consulta [Configuración](docs/uso.md#configuración).

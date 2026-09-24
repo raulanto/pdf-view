@@ -2,3 +2,5 @@ Main Main.qml
 Theme Theme.qml
 FilePicker FilePicker.qml
 PdfPage PdfPage.qml
+
+Preferences Preferences.qml

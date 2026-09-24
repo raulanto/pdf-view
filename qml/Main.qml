@@ -22,9 +22,22 @@ FloatingWindow {
     property bool searchVisible: false
     property bool focusMode: false
     property string sidebarMode: "pages"
-    readonly property bool commandsEnabled: !picker.visible && !passwordDialog.visible && !rangeDialog.visible && !notesDialog.visible && !page.saving && !sidebarPanel.ocrLanguageField.activeFocus && !searchBar.searchField.activeFocus && !toolbarPanel.pageInputField.activeFocus
+    readonly property bool commandsEnabled: !settingsDialog.visible && !picker.visible && !passwordDialog.visible && !rangeDialog.visible && !notesDialog.visible && !page.saving && !sidebarPanel.ocrLanguageField.activeFocus && !searchBar.searchField.activeFocus && !toolbarPanel.pageInputField.activeFocus
     readonly property string documentName: documentPath.split("/").pop() || "sin documento"
-    Theme { id: theme }
+    readonly property alias preferences: preferences
+    readonly property alias settingsDialog: settingsDialog
+    Preferences {
+        id: preferences
+        onApplied: {
+            viewport.fitMode=value("fit","page"); viewport.zoom=value("zoom",100)/100
+            page.ocrLanguage=value("language","eng"); page.ocrEnabled=value("ocr",false)
+            page.annotationColor=value("color","#e69600")
+        }
+    }
+    Theme { id: theme; uiScale: preferences.value("uiScale",100)/100 }
+    function showSettings() { if (!preferences.ready || preferences.busy || page.saving) return; selectionToolbar.close(); settingsDialog.open() }
+    SettingsDialog { id: settingsDialog; theme: window.theme; preferences: window.preferences; canvasItem: canvas }
+    Shortcut { sequence: preferences.key("settings","Ctrl+,"); enabled: window.commandsEnabled; onActivated: window.showSettings() }
     onClosed: { if (page.saving) visible=true; else Qt.quit() }
     title: documentPath ? documentName + " — pdf-view" : "pdf-view"
     visible: true
@@ -41,7 +54,7 @@ FloatingWindow {
         searchVisible = false
         searchBar.searchTimer.stop()
         searchBar.searchField.text = ""
-        viewport.fitMode = "page"
+        viewport.fitMode = preferences.value("fit","page"); viewport.zoom=preferences.value("zoom",100)/100
         viewport.contentX = 0; viewport.contentY = 0
         documentPath = decodeURIComponent(file.toString().replace(/^file:\/\//, ""))
         page.open(file)
@@ -63,7 +76,7 @@ FloatingWindow {
         onNoteRequested: window.showNotes()
         onCopyRequested: { page.copySelection(); close() }
     }
-    Shortcut { sequence: "Ctrl+Shift+A"; enabled: window.commandsEnabled && page.anchor>=0; onActivated: window.showSelectionTools() }
+    Shortcut { sequence: preferences.key("annotate","Ctrl+Shift+A"); enabled: window.commandsEnabled && page.anchor>=0; onActivated: window.showSelectionTools() }
 
     NotesDialog { id: notesDialog; theme: window.theme; page: page; canvasItem: canvas }
     PasswordDialog {
@@ -83,7 +96,7 @@ FloatingWindow {
     Connections {
         target: page
         function onSelectionFinished(position) {
-            if (!notesDialog.visible && !page.saving) selectionToolbar.showAt(page.mapToItem(canvas,position.x,position.y))
+            if (preferences.value("selectionToolbar",true) && !settingsDialog.visible && !notesDialog.visible && !page.saving) selectionToolbar.showAt(page.mapToItem(canvas,position.x,position.y))
         }
         function onChanged() {
             if (!page.selectedText.length || page.saving) selectionToolbar.close()
@@ -108,21 +121,21 @@ FloatingWindow {
 
     function showSearch() { searchVisible = true; searchBar.searchField.forceActiveFocus(); searchBar.searchField.selectAll() }
 
-    Shortcut { sequence: "Ctrl+F"; enabled: !notesDialog.visible && !page.saving && !picker.visible && !passwordDialog.visible; onActivated: window.showSearch() }
-    Shortcut { sequence: "Ctrl+E"; enabled: !notesDialog.visible && !page.saving && !picker.visible && !passwordDialog.visible; onActivated: window.focusMode = !window.focusMode }
-    Shortcut { sequence: "PgDown"; enabled: window.commandsEnabled; onActivated: window.changePage(page.currentPage + 1) }
-    Shortcut { sequence: "PgUp"; enabled: window.commandsEnabled; onActivated: window.changePage(page.currentPage - 1) }
-    Shortcut { sequence: "Ctrl+Home"; enabled: window.commandsEnabled; onActivated: window.changePage(1) }
-    Shortcut { sequence: "Ctrl+End"; enabled: window.commandsEnabled; onActivated: window.changePage(page.pageCount) }
-    Shortcut { sequence: "Ctrl++"; enabled: window.commandsEnabled; onActivated: viewport.adjustZoom(1.25) }
-    Shortcut { sequence: "Ctrl+-"; enabled: window.commandsEnabled; onActivated: viewport.adjustZoom(0.8) }
-    Shortcut { sequence: "Ctrl+0"; enabled: window.commandsEnabled; onActivated: viewport.fitMode = "page" }
-    Shortcut { sequence: "Ctrl+R"; enabled: window.commandsEnabled; onActivated: page.rotatePage(1) }
-    Shortcut { sequence: "Ctrl+C"; enabled: window.commandsEnabled; onActivated: page.copySelection() }
-    Shortcut { sequence: "Ctrl+A"; enabled: window.commandsEnabled; onActivated: page.selectAll() }
-    Shortcut { sequence: "F3"; enabled: !notesDialog.visible && !page.saving && !picker.visible && !passwordDialog.visible; onActivated: page.nextMatch(1) }
-    Shortcut { sequence: "Shift+F3"; enabled: !notesDialog.visible && !page.saving && !picker.visible && !passwordDialog.visible; onActivated: page.nextMatch(-1) }
-    Shortcut { sequence: "Escape"; enabled: !notesDialog.visible && !page.saving && !picker.visible && !passwordDialog.visible; onActivated: { if (selectionToolbar.opened) { selectionToolbar.close() } else if (page.anchor >= 0) { page.clearSelection() } else if (window.focusMode) { window.focusMode = false } else if (window.searchVisible) { searchBar.searchTimer.stop(); window.searchVisible = false; page.search(""); page.forceActiveFocus() } } }
+    Shortcut { sequence: preferences.key("search","Ctrl+F"); enabled: !settingsDialog.visible && !notesDialog.visible && !page.saving && !picker.visible && !passwordDialog.visible; onActivated: window.showSearch() }
+    Shortcut { sequence: preferences.key("focus","Ctrl+E"); enabled: !settingsDialog.visible && !notesDialog.visible && !page.saving && !picker.visible && !passwordDialog.visible; onActivated: window.focusMode = !window.focusMode }
+    Shortcut { sequence: preferences.key("next","PgDown"); enabled: window.commandsEnabled; onActivated: window.changePage(page.currentPage + 1) }
+    Shortcut { sequence: preferences.key("previous","PgUp"); enabled: window.commandsEnabled; onActivated: window.changePage(page.currentPage - 1) }
+    Shortcut { sequence: preferences.key("first","Ctrl+Home"); enabled: window.commandsEnabled; onActivated: window.changePage(1) }
+    Shortcut { sequence: preferences.key("last","Ctrl+End"); enabled: window.commandsEnabled; onActivated: window.changePage(page.pageCount) }
+    Shortcut { sequence: preferences.key("zoomIn","Ctrl++"); enabled: window.commandsEnabled; onActivated: viewport.adjustZoom(1.25) }
+    Shortcut { sequence: preferences.key("zoomOut","Ctrl+-"); enabled: window.commandsEnabled; onActivated: viewport.adjustZoom(0.8) }
+    Shortcut { sequence: preferences.key("fit","Ctrl+0"); enabled: window.commandsEnabled; onActivated: viewport.fitMode = "page" }
+    Shortcut { sequence: preferences.key("rotate","Ctrl+R"); enabled: window.commandsEnabled; onActivated: page.rotatePage(1) }
+    Shortcut { sequence: preferences.key("copy","Ctrl+C"); enabled: window.commandsEnabled; onActivated: page.copySelection() }
+    Shortcut { sequence: preferences.key("selectAll","Ctrl+A"); enabled: window.commandsEnabled; onActivated: page.selectAll() }
+    Shortcut { sequence: preferences.key("nextMatch","F3"); enabled: !settingsDialog.visible && !notesDialog.visible && !page.saving && !picker.visible && !passwordDialog.visible; onActivated: page.nextMatch(1) }
+    Shortcut { sequence: preferences.key("previousMatch","Shift+F3"); enabled: !settingsDialog.visible && !notesDialog.visible && !page.saving && !picker.visible && !passwordDialog.visible; onActivated: page.nextMatch(-1) }
+    Shortcut { sequence: "Escape"; enabled: !settingsDialog.visible && !notesDialog.visible && !page.saving && !picker.visible && !passwordDialog.visible; onActivated: { if (selectionToolbar.opened) { selectionToolbar.close() } else if (page.anchor >= 0) { page.clearSelection() } else if (window.focusMode) { window.focusMode = false } else if (window.searchVisible) { searchBar.searchTimer.stop(); window.searchVisible = false; page.search(""); page.forceActiveFocus() } } }
 
     FilePicker {
         id: picker
@@ -130,7 +143,7 @@ FloatingWindow {
         colors: theme.colors
         onSelected: file => window.openDocument(file)
     }
-    Shortcut { sequence: "Ctrl+O"; enabled: !notesDialog.visible && !page.saving; onActivated: picker.open() }
+    Shortcut { sequence: preferences.key("open","Ctrl+O"); enabled: !settingsDialog.visible && !notesDialog.visible && !page.saving; onActivated: picker.open() }
 
     Rectangle {
         id: canvas
@@ -224,7 +237,7 @@ FloatingWindow {
                             function scrollBy(delta) {
                                 const destination=Math.max(0,Math.min(contentHeight-height,(wheelScroll.running ? wheelScroll.to : contentY)+delta))
                                 wheelScroll.stop(); cancelFlick()
-                                wheelScroll.from=contentY; wheelScroll.to=destination; wheelScroll.start()
+                                if (preferences.value("smooth",true)) { wheelScroll.from=contentY; wheelScroll.to=destination; wheelScroll.start() } else contentY=destination
                             }
                             NumberAnimation { id: wheelScroll; target: viewport; property: "contentY"; duration: 140; easing.type: Easing.OutCubic }
                             onDraggingChanged: if (dragging) wheelScroll.stop()
@@ -279,7 +292,7 @@ FloatingWindow {
                             ThemedLabel {
                                 theme: window.theme
                                 width: parent.width
-                                text: page.error || (page.busy ? "Preparando la página…" : "Abre o arrastra un documento.\nCtrl+O  ·  seleccionar PDF")
+                                text: page.error || (page.busy ? "Preparando la página…" : "Abre o arrastra un documento.\n"+preferences.key("open","Ctrl+O")+"  ·  seleccionar PDF")
                                 wrapMode: Text.WordWrap
                                 elide: Text.ElideNone
                                 opacity: 0.8

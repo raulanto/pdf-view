@@ -278,6 +278,10 @@ with tempfile.TemporaryDirectory() as directory:
                     underline_pixels(rendered,word['rect'],tuple(bytes.fromhex(color[1:])))
                 assert editor.call('save',kind=2,annotation='remove_underline',rects=[words[0]['rect']],note='').get('saved')
                 erased=editor.call('open',url=colored.as_uri())
+                for word in words[1:]:
+                    underline_pixels(erased,word['rect'],tuple(bytes.fromhex(color[1:])))
+                assert editor.call('save',kind=2,annotation='remove_underline',rects=[w['rect'] for w in words[1:]],note='').get('saved')
+                erased=editor.call('open',url=colored.as_uri())
                 assert erased['image']==clean['image'], 'underline still visible after removal'
                 assert editor.call('text',kind=2)['annotations']==[]
             finally: editor.close()

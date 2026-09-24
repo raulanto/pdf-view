@@ -3,6 +3,7 @@ import QtTest
 import Quickshell
 import qs.qml
 import "../qml/components"
+import "../qml/dialogs"
 
 ShellRoot {
   FloatingWindow {
@@ -10,6 +11,8 @@ ShellRoot {
     visible: true; implicitWidth: 900; implicitHeight: 900
     PdfPage { id: doc; width: pageWidth; height: pageHeight; y: -(currentPage-1)*(singleHeight+16) }
     Theme { id: testTheme }
+    Preferences { id: prefs }
+    SettingsDialog { id: settings; parent: doc.parent; theme: testTheme; preferences: prefs; canvasItem: doc.parent }
     property bool testingActions: false
     SelectionToolbar {
         id: actions; parent: doc.parent; theme: testTheme; selectedColor: doc.annotationColor; canAnnotate: doc.canAnnotate
@@ -32,8 +35,8 @@ ShellRoot {
         }
         when: doc.ready
         function cleanupTestCase() {
-            if (checks===11) console.log("INTERACTION PASSED: colored annotation ribbon, persistence, mouse selection at 0/90/180/270 degrees, drag, clipboard, Shift+click stale responses and preloaded scrolling")
-            else console.error("INTERACTION FAILED: " + checks + "/11 checks completed")
+            if (checks===12) console.log("INTERACTION PASSED: settings save/validation, colored annotation ribbon, persistence, mouse selection at 0/90/180/270 degrees, drag, clipboard, Shift+click stale responses and preloaded scrolling")
+            else console.error("INTERACTION FAILED: " + checks + "/12 checks completed")
             Qt.quit()
         }
         function initTestCase() {
@@ -73,6 +76,27 @@ ShellRoot {
             tryVerify(() => !doc.busy && doc.textReady,20000)
             verify(!doc.annotations.some(a=>a.kind==="underline"))
             testWindow.testingActions=false; actionStep=""
+            checks++
+        }
+        function test_settings() {
+            tryVerify(() => prefs.ready && !prefs.busy && !!prefs.values.keys,10000)
+            settings.open(); tryVerify(() => settings.opened)
+            settings.tab=2; wait(100)
+            const save=findChild(settings.contentItem,"saveSettings")
+            verify(save!==null)
+            settings.draft.keys.open="Ctrl+F"
+            mouseClick(save,save.width/2,save.height/2)
+            tryVerify(() => !prefs.busy && prefs.error.length>0)
+            verify(settings.opened)
+            settings.draft.keys.open="Alt+O"; settings.draft.scrollStep=180
+            mouseClick(save,save.width/2,save.height/2)
+            tryVerify(() => !prefs.busy && !settings.opened)
+            compare(prefs.values.keys.open,"Alt+O"); compare(prefs.values.scrollStep,180)
+            settings.open(); tryVerify(() => settings.opened)
+            compare(settings.draft.scrollStep,180)
+            settings.draft=JSON.parse(JSON.stringify(prefs.defaults))
+            mouseClick(save,save.width/2,save.height/2)
+            tryVerify(() => !prefs.busy && !settings.opened)
             checks++
         }
         function test_annotations() {

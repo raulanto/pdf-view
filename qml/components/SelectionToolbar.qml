@@ -68,6 +68,7 @@ Popup {
             ]
             delegate: AbstractButton {
                 required property var modelData
+                objectName: "ink"+modelData.value.substring(1)
                 property bool sel: toolbar.selectedColor === modelData.value
                 readonly property int sz: Math.round(14 * toolbar.theme.scale)
                 implicitWidth:  sz + Math.round(4 * toolbar.theme.scale)

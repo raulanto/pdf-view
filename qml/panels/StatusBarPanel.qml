@@ -19,6 +19,6 @@ Rectangle {
         anchors.rightMargin: 10
         ThemedLabel { theme: root.theme; text: root.page.saving ? "GUARDANDO" : root.page.busy ? "LEYENDO" : (root.page.error ? "ERROR" : "NORMAL"); color: root.page.error ? root.theme.colors.error : root.theme.colors.accent; font.pixelSize: 10; font.bold: true }
         ThemedLabel { theme: root.theme; Layout.fillWidth: true; text: root.page.hasPage ? root.window.documentName : "ningún documento abierto"; font.pixelSize: 11 }
-        ThemedLabel { theme: root.theme; text: root.page.saveStatus || (root.page.selectedText.length > 0 ? "selección · Ctrl+C" : (root.page.auxiliaryBusy ? "procesando…" : (root.page.selectionStartPage > 0 ? "inicio p."+root.page.selectionStartPage+" · Shift+clic" : "lectura y notas"))); font.pixelSize: 10; opacity: 0.65 }
+        ThemedLabel { theme: root.theme; text: root.page.saveStatus || (root.page.selectedText.length > 0 ? "selección · "+root.window.preferences.key("copy","Ctrl+C") : (root.page.auxiliaryBusy ? "procesando…" : (root.page.selectionStartPage > 0 ? "inicio p."+root.page.selectionStartPage+" · Shift+clic" : "lectura y notas"))); font.pixelSize: 10; opacity: 0.65 }
     }
 }

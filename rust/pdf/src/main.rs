@@ -3,6 +3,7 @@ mod process;
 mod protocol;
 mod sandbox;
 mod save;
+mod settings;
 
 use cache::Cache;
 use process::{cancel, Job, WorkerProcess};
@@ -22,6 +23,9 @@ use std::{
 };
 
 fn main() -> io::Result<()> {
+    if std::env::args().nth(1).as_deref() == Some("--settings") {
+        return settings::run();
+    }
     let worker = std::env::var_os("PDF_VIEW_WORKER")
         .map(PathBuf::from)
         .unwrap_or(std::env::current_exe()?.with_file_name("pdf-worker"));

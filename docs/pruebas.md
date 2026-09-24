@@ -60,3 +60,5 @@ La cinta rápida se prueba con eventos reales de clic izquierdo: apertura al sel
 La regresión de subrayados comprueba los píxeles renderizados de los seis colores después de guardar y reabrir: exige una línea continua bajo cada palabra. Validar únicamente el campo RGB no detectaba el orden incorrecto de QuadPoints.
 
 La eliminación se comprueba mediante clic real en la cinta y reapertura. Para los seis colores, la imagen tras borrar debe coincidir con la página original sin subrayados. Se verifica también que borrar conserve notas y subrayados fuera de la selección, y que una selección sin marcas no modifique el archivo.
+
+`settings` verifica persistencia en un archivo temporal, normalización de atajos, duplicados, JSON dañado y rechazo de enlaces. La interacción abre el menú, intenta un atajo duplicado, corrige y guarda mediante clic, vuelve a abrir y restaura los valores de prueba. El desmarcado parcial comprueba que el resto de palabras conserva sus píxeles de color tras reabrir.

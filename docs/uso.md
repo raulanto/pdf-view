@@ -46,7 +46,7 @@ Admite reemplazo de directorios y enlaces simbólicos. Conserva la última palet
 - **Notas:** pulsa `notas`, escribe el texto y pulsa `guardar nota`. Si hay selección, la nota se sitúa junto a ella; si no, se coloca en la parte superior de la página.
 - **Reabrir:** los subrayados aparecen en la página y el botón `notas` muestra las notas guardadas de la página actual. Se usan anotaciones PDF estándar, no archivos auxiliares exclusivos del visor.
 
-Durante la escritura se muestra `GUARDANDO`; al finalizar aparece `Anotación guardada en el PDF.`. El visor recarga el documento automáticamente. Si falla una nota, el diálogo conserva el texto para corregir el problema y reintentar. No hay un paso adicional de guardar ni borradores persistentes. La edición y eliminación de anotaciones existentes todavía no están implementadas.
+Durante la escritura se muestra `GUARDANDO`; al finalizar aparece `Anotación guardada en el PDF.`. El visor recarga el documento automáticamente. Si falla una nota, el diálogo conserva el texto para corregir el problema y reintentar. No hay un paso adicional de guardar ni borradores persistentes. La eliminación de subrayados está disponible desde la cinta; no se editan ni eliminan notas existentes.
 
 Se requiere PDFium, permiso de escritura en el archivo y en su carpeta. Esta versión no anota documentos cifrados ni firmados, para no alterar su protección o invalidar firmas. Límites: 128 palabras por subrayado, 4000 caracteres por nota (también sujeto al límite IPC), salida de 256 MiB; se muestran hasta 256 anotaciones de la página. La selección entre páginas sigue sirviendo para copiar, pero los subrayados se crean página por página.
 
@@ -58,4 +58,14 @@ La cinta también se abre con **anotar ▾** o **Ctrl+Shift+A** sobre una selecc
 
 ### Quitar subrayados
 
-Selecciona con clic izquierdo texto subrayado y pulsa **quitar subrayado**. Se elimina del PDF cada subrayado que contiene alguna palabra seleccionada, aunque esa marca abarque más palabras. Las notas y otros subrayados quedan intactos. Si no hay marcas guardadas en la selección, se muestra un mensaje sin modificar el archivo.
+Selecciona con clic izquierdo texto subrayado y pulsa **quitar subrayado**. Se elimina únicamente el tramo de las palabras seleccionadas; el resto del mismo subrayado conserva su color. Las notas y otros subrayados quedan intactos. Si no hay marcas guardadas en la selección, se muestra un mensaje sin modificar el archivo.
+
+## Configuración
+
+Abre **configurar** en la cabecera o **Ctrl+,**. Los cambios se aplican al pulsar **Guardar**; **Cancelar** descarta el borrador y **Restaurar valores** prepara los valores iniciales sin guardarlos todavía.
+
+- **Lectura:** ajuste inicial a página, ancho o zoom fijo (25–400 %), paso de rueda (20–400 px), desplazamiento suave, panel lateral, cinta automática y color inicial de anotaciones.
+- **Apariencia / OCR:** escala de interfaz (75–150 % sobre la escala del escritorio), activación de OCR e idiomas locales como `eng` o `spa+eng`. Los colores siguen el tema Omarchy. No se descargan modelos.
+- **Atajos:** abrir, buscar, modo lectura, navegación, zoom, rotación, copiar, seleccionar, coincidencias, cinta y configuración. Escribe combinaciones como `Ctrl+O`, `Alt+Right` o `F3`; se rechazan duplicados y teclas desconocidas. `Esc` queda reservado para cerrar diálogos.
+
+Las preferencias se guardan en `$XDG_CONFIG_HOME/pdf-view/settings.json` o `~/.config/pdf-view/settings.json`. `PDF_VIEW_SETTINGS_FILE` permite un archivo separado para pruebas. No se almacenan documentos, contraseñas ni texto del PDF. Si el archivo está dañado, se muestran valores iniciales y el error; guardar reemplaza la configuración solo después de validarla. Los atajos del visor no se ejecutan mientras editas este menú.

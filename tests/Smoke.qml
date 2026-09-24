@@ -126,8 +126,22 @@ ShellRoot {
                 return
             }
             if (root.themeTest && root.stage !== 2) return
+            if (!root.themeTest && root.stage===10) {
+                if (!root.viewer.preferences.ready || root.viewer.preferences.busy) return
+                root.viewer.selectionActions.close()
+                root.viewer.showSettings()
+                root.stage=11; return
+            }
+            if (!root.themeTest && root.stage===11) {
+                root.stage=12
+                root.viewer.settingsDialog.background.parent.grabToImage(function(result) {
+                    result.saveToFile(Quickshell.env("PDF_VIEW_SCREENSHOT")+".settings-reading.png")
+                    root.viewer.settingsDialog.tab=2
+                })
+                return
+            }
             stop()
-            const item = root.themeTest ? root.viewer.filePicker.contentItem : (root.stage===10 ? root.viewer.selectionActions.background.parent : root.viewer.captureItem)
+            const item = root.themeTest ? root.viewer.filePicker.contentItem : (root.stage>=11 ? root.viewer.settingsDialog.background.parent : root.viewer.captureItem)
             item.grabToImage(function(result) {
                 if (!result.saveToFile(Quickshell.env("PDF_VIEW_SCREENSHOT"))) {
                     Qt.quit()
